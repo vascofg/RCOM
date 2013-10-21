@@ -11,7 +11,6 @@
 #include <signal.h>
 
 #define BAUDRATE B38400
-#define MODEMDEVICE "/dev/ttyS4"
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 0x7E
 #define A 0x03
@@ -20,41 +19,62 @@
 #define FALSE 0
 #define TRUE 1
 
+#define MAX_RETRIES 3 /* Número de envios adicionais a efectuar em caso de não haver resposta */
+
 volatile int STOP=FALSE;
 
-void send_trama(int fd, char buf[255])
+int fd, conta = 0, writeBufLen, res;
+char writeBuf[255], readBuf[255];
+
+void readResponse()
 {
-    int res;
-    printf("WRITING PACKET\n");
-    res = write(fd,buf,strlen(buf)+1);
-    printf("%d bytes written\n", res);
+	res = read(fd,readBuf,1); //parado aqui
+	printf("READ RESPONSE\n");
+	alarm(0); //cancelar alarmes pendentes
+	conta = 0; //reinicia contador de retries
+    while(STOP==FALSE)
+    {
+        res = read(fd,readBuf,1);
+        if(readBuf[0] == FLAG)
+           STOP = TRUE;
+    }
+	STOP = FALSE;
 }
 
-int fd, flag = 0, conta = 0;
-
-void send_set()
+void sendTrama()
 {
-    if(!flag)
-    {
-        char buf[255];
-        buf[0]=FLAG;
-        buf[1]=A;
-        buf[2]=C_SET;
-        buf[3]=A^C_SET;
-        buf[4]=FLAG;
-        printf("WRITING SET\n");
-        write(fd, buf, 5);
-        conta++;
-        if(conta < 4)
-            alarm(3);
-    }
+	if(conta++ <= MAX_RETRIES)
+	{
+		write(fd, writeBuf, writeBufLen);
+		printf("\tSENDING PACKET\n");
+		alarm(3);
+	}
+	else
+	{
+		printf("CONNECTION LOST... GIVING UP\n");
+		exit(1);
+	}
+}
+
+void setConnection()
+{
+	writeBuf[0]=FLAG;
+	writeBuf[1]=A;
+	writeBuf[2]=C_SET;
+	writeBuf[3]=writeBuf[1]^writeBuf[2];
+	writeBuf[4]=FLAG;
+	writeBufLen=5;
+	printf("WRITING SET\n");
+	
+    (void) signal(SIGALRM, sendTrama);
+    sendTrama();
+	readResponse(); //aguarda OK
 }
 
 int main(int argc, char** argv)
 {
-    int c, res;
     struct termios oldtio,newtio;
-    char buf[255], buf2[255];
+  
     int i, sum = 0, speed = 0;
     
     if (argc < 2){
@@ -108,26 +128,31 @@ int main(int argc, char** argv)
     res = write(fd,buf,5);
     printf("%d bytes written\n", res);*/
     
-    (void) signal(SIGALRM, send_set);
-    send_set();
-    printf("READING UA\n");
-    res = read(fd,buf2,1); //parado aqui
-    flag = 1;
-    printf("%x\n", buf2[0]);
-    while(STOP==FALSE)
-    {
-        res = read(fd,buf2,1);
-        printf("%x\n", buf2[0]);
-        if(buf2[0] == FLAG)
-           STOP = TRUE;
-    }
+	setConnection();
+	
+	//Trama de teste
+	writeBuf[0]=FLAG;
+	writeBuf[1]=A;
+	writeBuf[2]=0; //o que mandar aqui?
+	writeBuf[3]=writeBuf[1]^writeBuf[2];
+	writeBuf[4]='O';
+	writeBuf[5]='L';
+	writeBuf[6]='A';
+	writeBuf[7]=0; //XOR COM TODOS OS BYTES ENVIADOS
+	writeBuf[8]=FLAG;
+	writeBufLen = 9;
+	
+	printf("WRITING TRAMA\n");
+	sendTrama();
+	readResponse(); //aguarda OK
+	
+	printf("\nALL DONE\n");
+	sleep(1);
     
     if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
       perror("tcsetattr");
       exit(-1);
     }
-
-
 
     close(fd);
     return 0;

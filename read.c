@@ -12,16 +12,69 @@
 #define A 0x03
 #define C_SET 0x03
 #define C_UA 0x07
+#define C_RR 0x05
 #define FALSE 0
 #define TRUE 1
 
 volatile int STOP=FALSE;
 
+int fd, res;
+char readBuf[255], writeBuf[255];
+
+void sendResponse()
+{
+	printf("\tWRITING RESPONSE\n");
+	write(fd, writeBuf, 5);
+}
+
+void sendUA()
+{
+	printf("\nWRITING UA\n");
+    writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=C_UA;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+	sendResponse();
+}
+
+void sendRR()
+{
+	printf("\nWRITING RR\n");
+    writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=C_RR;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+	sendResponse();
+}
+
+void setConnection()
+{
+	readTrama();
+	sendUA();
+}
+
+void readTrama()
+{
+    printf("READING PACKET\n");
+    res = read(fd,readBuf,1);
+    if(readBuf[0]!=FLAG)
+        printf("\nNOT FLAG");
+    else {
+        //printf("%x\n",readBuf[0]); //FLAG
+        while (STOP==FALSE) {
+            res=read(fd,readBuf,1);
+            printf("%x - %c\n", readBuf[0], readBuf[0]);
+            if(readBuf[0]==FLAG) STOP = TRUE;
+        }
+		STOP=FALSE; //reset stop
+    }
+}
+
 int main(int argc, char** argv)
 {
-    int fd,c, res;
     struct termios oldtio,newtio;
-    char buf[255], buf2[255];
 
     if ( (argc < 2) || 
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
@@ -73,29 +126,15 @@ int main(int argc, char** argv)
     }
 
     printf("New termios structure set\n");
-    printf("READING PACKET\n");
-    res = read(fd,buf,1);
-    if(buf[0]!=FLAG)
-        printf("\nNOT FLAG");
-    else {
-        printf("%x\n",buf[0]); //FLAG
-        while (STOP==FALSE) {
-            res=read(fd,buf,1);
-            printf("%x\n", buf[0]);
-            if(buf[0]==FLAG) STOP = TRUE;
-        }
-    }
-
-    //sleep(2);
-
-    printf("\nWRITING UA\n");
-    
-    buf2[0]=FLAG;
-    buf2[1]=A;
-    buf2[2]=C_UA;
-    buf2[3]=A^C_UA;
-    buf2[4]=FLAG;
-	write(fd, buf2, 5);
+	
+	setConnection();
+	
+	//sleep(1);
+	
+	readTrama();
+	sendRR();
+	
+	printf("\nALL DONE\n");
 	sleep(1);
 
   /* 
