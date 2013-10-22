@@ -10,35 +10,46 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define BAUDRATE B38400
+#define BAUDRATE 5
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 0x7E
 #define A 0x03
 #define C_SET 0x03
 #define C_UA 0x07
+#define C_RR 0x05
+#define C_REJ 0x01
+#define C_DISC 0x0B
 #define FALSE 0
 #define TRUE 1
 
 #define MAX_RETRIES 3 /* Número de envios adicionais a efectuar em caso de não haver resposta */
 
-volatile int STOP=FALSE;
 
-int fd, conta = 0, writeBufLen, res;
+int fd, conta = 0, writeBufLen, res, c=0;
 char writeBuf[255], readBuf[255];
 
-void readResponse()
+int readResponse()
 {
 	res = read(fd,readBuf,1); //parado aqui
-	printf("READ RESPONSE\n");
 	alarm(0); //cancelar alarmes pendentes
 	conta = 0; //reinicia contador de retries
-    while(STOP==FALSE)
-    {
-        res = read(fd,readBuf,1);
-        if(readBuf[0] == FLAG)
-           STOP = TRUE;
-    }
-	STOP = FALSE;
+    if(readBuf[0]==FLAG) //FLAG
+	{
+		res=read(fd,readBuf,1);
+		if(readBuf[0]==A) //ADDRESS
+		{
+			res=read(fd,readBuf,1); //C
+			int readC = readBuf[0];
+			res=read(fd,readBuf,1);
+			if(readBuf[0]==A^readC) //BCC1
+			{
+				res=read(fd,readBuf,1);
+				if(readBuf[0]==FLAG) //FLAG
+					return readC;
+			}
+		}
+	}
+	return -1; //ERROR
 }
 
 void sendTrama()
@@ -56,6 +67,19 @@ void sendTrama()
 	}
 }
 
+
+void sendControlTrama(int c)
+{
+	writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=c;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+	writeBufLen=5;
+	printf("SENDING COMMAND 0x%x\n", c);
+	write(fd, writeBuf, writeBufLen);  
+}
+
 void setConnection()
 {
 	writeBuf[0]=FLAG;
@@ -68,7 +92,39 @@ void setConnection()
 	
     (void) signal(SIGALRM, sendTrama);
     sendTrama();
-	readResponse(); //aguarda OK
+	if(readResponse() != C_UA)
+	{
+		printf("\tWRONG SET RESPONSE, QUITING\n");
+		exit(1);
+	}
+	else
+		printf("CONNECTION ESTABLISHED!\n");
+}
+
+void sendDataTrama(char *trama, int numchars)
+{
+	//Trama de teste
+	writeBuf[0]=FLAG;
+	writeBuf[1]=A;
+	writeBuf[2]=c;
+	writeBuf[3]=writeBuf[1]^writeBuf[2];
+	int i;
+	for(i=4;i<numchars+4;++i)
+		writeBuf[i] = trama[i-4];
+	writeBuf[i++]=0; //XOR COM TODOS OS BYTES ENVIADOS
+	writeBuf[i++]=FLAG;
+	writeBufLen = i;
+	
+	printf("WRITING TRAMA\n");
+	sendTrama();
+	c = !c;
+	if(readResponse() != C_RR ^ c) //aguarda RR
+	{
+		printf("\tREJECT! RESENDING!!!\n");
+		sendDataTrama(trama, numchars); //reenvia
+	}
+	else
+		printf("\tRECEIVER READY!\n");
 }
 
 int main(int argc, char** argv)
@@ -128,23 +184,18 @@ int main(int argc, char** argv)
     res = write(fd,buf,5);
     printf("%d bytes written\n", res);*/
     
+	(void) signal(SIGALRM, sendTrama);
 	setConnection();
 	
-	//Trama de teste
-	writeBuf[0]=FLAG;
-	writeBuf[1]=A;
-	writeBuf[2]=0; //o que mandar aqui?
-	writeBuf[3]=writeBuf[1]^writeBuf[2];
-	writeBuf[4]='O';
-	writeBuf[5]='L';
-	writeBuf[6]='A';
-	writeBuf[7]=0; //XOR COM TODOS OS BYTES ENVIADOS
-	writeBuf[8]=FLAG;
-	writeBufLen = 9;
+	while(1)
+	{
+		sendDataTrama("OLA", 3);
+		sendDataTrama("ADEUS", 5);
+		sendDataTrama("A mae do Nuno", 13);
+		sendDataTrama("BAHAZA", 6);
+	}
 	
-	printf("WRITING TRAMA\n");
-	sendTrama();
-	readResponse(); //aguarda OK
+	sendControlTrama(C_DISC);
 	
 	printf("\nALL DONE\n");
 	sleep(1);

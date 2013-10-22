@@ -6,70 +6,78 @@
 #include <termios.h>
 #include <stdio.h>
 
-#define BAUDRATE B38400
+#define BAUDRATE 5
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 0x7E
 #define A 0x03
 #define C_SET 0x03
 #define C_UA 0x07
 #define C_RR 0x05
+#define C_REJ 0x01
+#define C_DISC 0x0B
 #define FALSE 0
 #define TRUE 1
 
-volatile int STOP=FALSE;
-
-int fd, res;
+int fd, res, c = 0;
 char readBuf[255], writeBuf[255];
 
-void sendResponse()
+void sendControlTrama(int c)
 {
-	printf("\tWRITING RESPONSE\n");
+	writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=c;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+	printf("SENDING COMMAND 0x%x\n", c);
 	write(fd, writeBuf, 5);
-}
-
-void sendUA()
-{
-	printf("\nWRITING UA\n");
-    writeBuf[0]=FLAG;
-    writeBuf[1]=A;
-    writeBuf[2]=C_UA;
-    writeBuf[3]=writeBuf[1]^writeBuf[2];
-    writeBuf[4]=FLAG;
-	sendResponse();
-}
-
-void sendRR()
-{
-	printf("\nWRITING RR\n");
-    writeBuf[0]=FLAG;
-    writeBuf[1]=A;
-    writeBuf[2]=C_RR;
-    writeBuf[3]=writeBuf[1]^writeBuf[2];
-    writeBuf[4]=FLAG;
-	sendResponse();
 }
 
 void setConnection()
 {
-	readTrama();
-	sendUA();
+	printf("AWAITING CONNECTION\n");
+	if(readTrama() != C_SET)
+	{
+		printf("\tSET TRAMA MALFORMED, QUITING\n");
+		exit(1);
+	}
+	else
+	{
+		sendControlTrama(C_UA);
+		printf("CONNECTION ESTABLISHED\n");
+	}
 }
 
-void readTrama()
+int readTrama()
 {
-    printf("READING PACKET\n");
+    printf("WAITING FOR PACKET\n");
     res = read(fd,readBuf,1);
-    if(readBuf[0]!=FLAG)
-        printf("\nNOT FLAG");
-    else {
-        //printf("%x\n",readBuf[0]); //FLAG
-        while (STOP==FALSE) {
-            res=read(fd,readBuf,1);
-            printf("%x - %c\n", readBuf[0], readBuf[0]);
-            if(readBuf[0]==FLAG) STOP = TRUE;
-        }
-		STOP=FALSE; //reset stop
-    }
+	printf("READ PACKET\n");
+    if(readBuf[0]==FLAG) //FLAG
+	{
+		res=read(fd,readBuf,1);
+		if(readBuf[0]==A) //ADDRESS
+		{
+			res=read(fd,readBuf,1);
+			int readC = readBuf[0]; //C
+			res=read(fd,readBuf,1);
+			if(readBuf[0]==A^readC) //BCC1
+			{
+				while (1) {
+					res=read(fd,readBuf,1);
+					if(readBuf[0]!=FLAG)
+						printf("\t%x - %c\n", readBuf[0], readBuf[0]); //FALTA VERIFICAÇÃO DO BCC2
+					else
+					{
+						if(readC == c) //VALID INFORMATION TRAMA
+							c = !c;
+						return readC;
+					}
+				}
+			}	
+		}
+		//printf("%x\n",readBuf[0]); //FLAG
+	}
+	return -1; //MALFORMED
 }
 
 int main(int argc, char** argv)
@@ -131,9 +139,22 @@ int main(int argc, char** argv)
 	
 	//sleep(1);
 	
-	readTrama();
-	sendRR();
-	
+	while(1)
+	{
+		int readC = readTrama();
+		if(readC == !c) //JÁ TROCOU
+			sendControlTrama(C_RR ^ c);
+		else if(readC == C_DISC)
+		{
+			printf("\nDISCONNECT REQUEST RECEIVED\n"); //FALTAM CENAS
+			break;
+		}
+		else
+		{
+			printf("\tDATA TRAMA MALFORMED, WAITING...");
+			sendControlTrama(C_REJ ^ c);
+		}
+	}
 	printf("\nALL DONE\n");
 	sleep(1);
 
