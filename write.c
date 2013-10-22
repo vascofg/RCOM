@@ -22,7 +22,7 @@
 #define FALSE 0
 #define TRUE 1
 
-#define MAX_RETRIES 3 /* Número de envios adicionais a efectuar em caso de não haver resposta */
+#define MAX_RETRIES 3 /* Nï¿½mero de envios adicionais a efectuar em caso de nï¿½o haver resposta */
 
 
 int fd, conta = 0, writeBufLen, res, c=0;
@@ -117,14 +117,17 @@ void sendDataTrama(char *trama, int numchars)
 	
 	printf("WRITING TRAMA\n");
 	sendTrama();
-	c = !c;
+	
 	if(readResponse() != C_RR ^ c) //aguarda RR
 	{
 		printf("\tREJECT! RESENDING!!!\n");
 		sendDataTrama(trama, numchars); //reenvia
 	}
 	else
+	{
+		c = !c;
 		printf("\tRECEIVER READY!\n");
+	}
 }
 
 int main(int argc, char** argv)
@@ -166,7 +169,7 @@ int main(int argc, char** argv)
 
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) próximo(s) caracter(es)
+    leitura do(s) prï¿½ximo(s) caracter(es)
   */
 
 
