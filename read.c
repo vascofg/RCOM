@@ -50,8 +50,10 @@ void setConnection()
 int readTrama()
 {
     printf("WAITING FOR PACKET\n");
-    res = read(fd,readBuf,1);
-	printf("READ PACKET\n");
+    //res = read(fd,readBuf,1);
+    return stateMachine(0); //estado inicial
+    /*printf("READ PACKET\n");
+	printf("FLAG -> %x\n", readBuf[0]);
     if(readBuf[0]==FLAG) //FLAG
 	{
 		res=read(fd,readBuf,1);
@@ -59,6 +61,7 @@ int readTrama()
 		{
 			res=read(fd,readBuf,1);
 			int readC = readBuf[0]; //C
+			printf("Read C -> %i\n", readC);
 			res=read(fd,readBuf,1);
 			if(readBuf[0]==A^readC) //BCC1
 			{
@@ -78,6 +81,59 @@ int readTrama()
 		//printf("%x\n",readBuf[0]); //FLAG
 	}
 	return -1; //MALFORMED
+	*/
+	
+}
+
+int stateMachine(int state)
+{
+    char readByte, readC;
+    while(1)
+    {
+	read(fd, readBuf, 1);
+	readByte = readBuf[0];
+       switch(state)
+	{
+	case 0: //FLAG
+		if(readByte == FLAG)
+			state=1;
+		break;
+	case 1: //A
+		if(readByte == A)
+			state=2;
+		else if(readByte != FLAG)
+			state = 0;
+		break;
+	case 2: //C
+		readC = readByte;
+		if(readC == C_SET || readC == C_UA || readC == C_DISC || readC == 0 || readC == 1)
+			state = 3;
+		else if(readByte == FLAG)
+			state = 1;
+		else
+			state = 0;
+		break;
+	case 3: // BCC1
+		if(readByte == A ^ readC)
+			state = 4;
+		else if(readByte == FLAG)
+                        state = 1;
+                else
+                        state = 0;
+		break;
+	case 4:
+		if(readByte == FLAG)
+		{
+			if(readC == 0 || readC == 1)
+				if(readC == c) //VALID INFORMATION TRAMA
+					c = !c;
+			return readC;
+		}
+		else
+			printf("\t%x - %c\n", readByte, readByte);
+		break;
+	}
+    }
 }
 
 int main(int argc, char** argv)
@@ -142,6 +198,7 @@ int main(int argc, char** argv)
 	while(1)
 	{
 		int readC = readTrama();
+		printf("C -> %i\n", readC);
 		if(readC == !c) //JÁ TROCOU
 			sendControlTrama(C_RR ^ c);
 		else if(readC == C_DISC)
@@ -153,6 +210,7 @@ int main(int argc, char** argv)
 		{
 			printf("\tDATA TRAMA MALFORMED, WAITING...");
 			sendControlTrama(C_REJ ^ c);
+			tcflush(fd, TCIOFLUSH);
 		}
 	}
 	printf("\nALL DONE\n");
