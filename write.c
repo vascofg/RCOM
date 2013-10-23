@@ -118,7 +118,7 @@ void sendDataTrama(char *trama, int numchars)
 	printf("WRITING TRAMA\n");
 	sendTrama();
 	
-	if(readResponse() != C_RR ^ c) //aguarda RR
+	if(readResponse() != C_RR ^ !c) //aguarda RR
 	{
 		printf("\tREJECT! RESENDING!!!\n");
 		sendDataTrama(trama, numchars); //reenvia
@@ -194,7 +194,7 @@ int main(int argc, char** argv)
 	{
 		sendDataTrama("OLA", 3);
 		sendDataTrama("ADEUS", 5);
-		sendDataTrama("A mae do Nuno", 13);
+		sendDataTrama("A mae do Vasco", 13);
 		sendDataTrama("BAHAZA", 6);
 	}
 	
