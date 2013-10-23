@@ -195,7 +195,7 @@ int main(int argc, char** argv)
 	{
 		sendDataTrama("OLA", 3);
 		sendDataTrama("ADEUS", 5);
-		sendDataTrama("A mae do Nuno", 13);
+		sendDataTrama("A mae do Vasco", 13);
 		sendDataTrama("BAHAZA", 6);
 	}
 	
