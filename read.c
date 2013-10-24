@@ -5,8 +5,10 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <strings.h>
 
-#define BAUDRATE 5
+#define BAUDRATE B9600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 0x7E
 #define A 0x03
@@ -18,8 +20,11 @@
 #define FALSE 0
 #define TRUE 1
 
+#define CHUNK_SIZE 1024
+
 int fd, res, c = 0;
-char readBuf[255], writeBuf[255];
+char readBuf[1], writeBuf[255], chunkBuf[CHUNK_SIZE+1]; //TEMP FIX: GUARDA BCC2
+FILE * pFile;
 
 void sendControlTrama(int c)
 {
@@ -87,52 +92,60 @@ int readTrama()
 
 int stateMachine(int state)
 {
+	int i = 0;
     char readByte, readC;
     while(1)
     {
-	read(fd, readBuf, 1);
-	readByte = readBuf[0];
-       switch(state)
-	{
-	case 0: //FLAG
-		if(readByte == FLAG)
-			state=1;
-		break;
-	case 1: //A
-		if(readByte == A)
-			state=2;
-		else if(readByte != FLAG)
-			state = 0;
-		break;
-	case 2: //C
-		readC = readByte;
-		if(readC == C_SET || readC == C_UA || readC == C_DISC || readC == 0 || readC == 1)
-			state = 3;
-		else if(readByte == FLAG)
-			state = 1;
-		else
-			state = 0;
-		break;
-	case 3: // BCC1
-		if(readByte == A ^ readC)
-			state = 4;
-		else if(readByte == FLAG)
-                        state = 1;
-                else
-                        state = 0;
-		break;
-	case 4:
-		if(readByte == FLAG)
+		read(fd, readBuf, 1);
+		readByte = readBuf[0];
+		   switch(state)
 		{
-			if(readC == 0 || readC == 1)
-				if(readC == c) //VALID INFORMATION TRAMA
-					c = !c;
-			return readC;
+		case 0: //FLAG
+			if(readByte == FLAG)
+				state=1;
+			break;
+		case 1: //A
+			if(readByte == A)
+				state=2;
+			else if(readByte != FLAG)
+				state = 0;
+			break;
+		case 2: //C
+			readC = readByte;
+			if(readC == C_SET || readC == C_UA || readC == C_DISC || readC == 0 || readC == 1)
+				state = 3;
+			else if(readByte == FLAG)
+				state = 1;
+			else
+				state = 0;
+			break;
+		case 3: // BCC1
+			if(readByte == A ^ readC)
+				state = 4;
+			else if(readByte == FLAG)
+							state = 1;
+					else
+							state = 0;
+			break;
+		case 4:
+			if(readByte == FLAG)
+			{
+				if(readC == 0 || readC == 1)
+					if(readC == c) //VALID INFORMATION TRAMA
+					{
+						c = !c;
+						fwrite(chunkBuf, sizeof(char), i, pFile); //ESTÁ A GUARDAR BCC2
+					}
+				return readC;
+			}
+			else
+			{
+				//printf("\t%x - %c\n", readByte, readByte);
+				//printf("I: %i\n", i);
+				chunkBuf[i++] = readByte; //construir chunk (para escrita no ficheiro)
+			}
+			break;
 		}
-		else
-			printf("\t%x - %c\n", readByte, readByte);
-		break;
-	}
     }
 }
 
@@ -191,6 +204,10 @@ int main(int argc, char** argv)
 
     printf("New termios structure set\n");
 	
+	
+	pFile = fopen ( "tmp" , "wb" );
+	if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+	
 	setConnection();
 	
 	//sleep(1);
@@ -198,19 +215,19 @@ int main(int argc, char** argv)
 	while(1)
 	{
 		int readC = readTrama();
-		printf("C -> %i\n", readC);
 		if(readC == !c) //JÁ TROCOU
 			sendControlTrama(C_RR ^ c);
 		else if(readC == C_DISC)
 		{
 			printf("\nDISCONNECT REQUEST RECEIVED\n"); //FALTAM CENAS
-			break;
+			sendControlTrama(C_DISC);//FALTAM TIMEOUTS E O ADDRESS ESTÁ MAL!!
+			if(readTrama() == C_UA)
+				break;
 		}
 		else
 		{
 			printf("\tDATA TRAMA MALFORMED, WAITING...");
 			sendControlTrama(C_REJ ^ c);
-			tcflush(fd, TCIOFLUSH);
 		}
 	}
 	printf("\nALL DONE\n");
@@ -222,5 +239,6 @@ int main(int argc, char** argv)
 
     tcsetattr(fd,TCSANOW,&oldtio);
     close(fd);
+	fclose(pFile);
     return 0;
 }

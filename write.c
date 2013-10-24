@@ -9,8 +9,10 @@
 #include <strings.h>
 #include <unistd.h>
 #include <signal.h>
+#include <string.h>
+#include <math.h>
 
-#define BAUDRATE 5
+#define BAUDRATE B9600
 #define _POSIX_SOURCE 1 /* POSIX compliant source */
 #define FLAG 0x7E
 #define A 0x03
@@ -23,16 +25,15 @@
 #define TRUE 1
 
 #define MAX_RETRIES 3 /* N�mero de envios adicionais a efectuar em caso de n�o haver resposta */
+#define CHUNK_SIZE 1024
 
 
-int fd, conta = 0, writeBufLen, res, c=0;
-char writeBuf[255], readBuf[255];
+int fd, conta = 0, writeBufLen, res, c=0, fileSize;
+char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE], readBuf[255], *fileContent;
 
 int readResponse()
 {
 	res = read(fd,readBuf,1); //parado aqui
-	alarm(0); //cancelar alarmes pendentes
-	conta = 0; //reinicia contador de retries
     if(readBuf[0]==FLAG) //FLAG
 	{
 		res=read(fd,readBuf,1);
@@ -45,7 +46,11 @@ int readResponse()
 			{
 				res=read(fd,readBuf,1);
 				if(readBuf[0]==FLAG) //FLAG
+				{
+					alarm(0); //cancelar alarmes pendentes (ATENÇÂO A RESPOSTAS INVÁLIDAS, NÃO ESPERADAS)
+					conta = 0; //reinicia contador de retries
 					return readC;
+				}
 			}
 		}
 	}
@@ -80,6 +85,25 @@ void sendControlTrama(int c)
 	write(fd, writeBuf, writeBufLen);  
 }
 
+void disconnect()
+{
+	writeBuf[0]=FLAG;
+	writeBuf[1]=A;
+	writeBuf[2]=C_DISC;
+	writeBuf[3]=writeBuf[1]^writeBuf[2];
+	writeBuf[4]=FLAG;
+	writeBufLen=5;
+	printf("DISCONNECTING\n");
+	
+    (void) signal(SIGALRM, sendTrama);
+    sendTrama();
+	int readC = readResponse();
+	if(readC != C_DISC)
+		disconnect(); //wrong response, send disc again
+	else
+		sendControlTrama(C_UA);
+}
+
 void setConnection()
 {
 	writeBuf[0]=FLAG;
@@ -109,15 +133,18 @@ void sendDataTrama(char *trama, int numchars)
 	writeBuf[2]=c;
 	writeBuf[3]=writeBuf[1]^writeBuf[2];
 	int i;
-	for(i=4;i<numchars+4;++i)
+	printf("ENTROU\n");
+	for(i=4;i<numchars+4;++i) //APPEND
+	{
+		//printf("chunkBuf[%i] -> %c\n", i-4, trama[i-4]);
 		writeBuf[i] = trama[i-4];
+	}
 	writeBuf[i++]=0; //XOR COM TODOS OS BYTES ENVIADOS
 	writeBuf[i++]=FLAG;
 	writeBufLen = i;
 	
 	printf("WRITING TRAMA\n");
 	sendTrama();
-	printf("C -> %i\n", c);
 	
 	if(readResponse() != C_RR ^ !c) //aguarda RR
 	{
@@ -131,14 +158,43 @@ void sendDataTrama(char *trama, int numchars)
 	}
 }
 
+int openFile(char *fileName)
+{
+	FILE * pFile;
+	long lSize;
+	size_t result;
+
+	pFile = fopen ( fileName , "rb" );
+	if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+
+	// obtain file size:
+	fseek (pFile , 0 , SEEK_END);
+	lSize = ftell (pFile);
+	rewind (pFile);
+
+	// allocate memory to contain the whole file:
+	fileContent = (char*) malloc (sizeof(char)*lSize);
+	if (fileContent == NULL) {fputs ("Memory error",stderr); exit (2);}
+
+	// copy the file into the buffer:
+	result = fread (fileContent,1,lSize,pFile);
+	if (result != lSize) {fputs ("Reading error",stderr); exit (3);}
+
+	/* the whole file is now loaded in the memory buffer. */
+
+	// terminate
+	fclose (pFile);
+	return lSize;
+}
+
 int main(int argc, char** argv)
 {
     struct termios oldtio,newtio;
   
     int i, sum = 0, speed = 0;
     
-    if (argc < 2){
-      printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
+    if (argc < 3){
+      printf("Usage:\tnserial SerialPort FileName\n\tex: nserial /dev/ttyS1 text.txt\n");
       exit(1);
     }
 
@@ -183,7 +239,10 @@ int main(int argc, char** argv)
 
     printf("New termios structure set\n");   
 
-
+	fileSize = openFile(argv[2]);
+	
+	printf("FILESIZE: %i\n", fileSize);
+	
    /* printf("WRITING PACKET\n");
     res = write(fd,buf,5);
     printf("%d bytes written\n", res);*/
@@ -191,15 +250,20 @@ int main(int argc, char** argv)
 	(void) signal(SIGALRM, sendTrama);
 	setConnection();
 	
-	while(1)
+	for(i=0;i<(fileSize/CHUNK_SIZE);i++) //whole chunks
 	{
-		sendDataTrama("OLA", 3);
-		sendDataTrama("ADEUS", 5);
-		sendDataTrama("A mae do Vasco", 13);
-		sendDataTrama("BAHAZA", 6);
+		memcpy(chunkBuf, &fileContent[i*CHUNK_SIZE], CHUNK_SIZE);
+		sendDataTrama(chunkBuf, CHUNK_SIZE);
 	}
 	
-	sendControlTrama(C_DISC);
+	//last bytes
+	if(fileSize%CHUNK_SIZE>0)
+	{
+		memcpy(chunkBuf, &fileContent[i*CHUNK_SIZE], fileSize%CHUNK_SIZE);
+		sendDataTrama(chunkBuf, fileSize%CHUNK_SIZE);
+	}
+	
+	disconnect();
 	
 	printf("\nALL DONE\n");
 	sleep(1);
