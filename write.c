@@ -168,7 +168,7 @@ void sendData()
 	sendControlPacket(2);
 }
 
-//Funcao auxiliar que envia um trama de dados com um pacote 'packet'
+//Funcao auxiliar que constroi e envia um trama de dados com um pacote 'packet'
 void sendDataFrame(char *packet, int numchars)
 {
 	writeBuf[0] = FLAG;
@@ -201,7 +201,7 @@ void sendDataFrame(char *packet, int numchars)
 	}
 }
 
-//Envia trama de dados com um pacote de controlo
+//Constroi e envia trama de dados com um pacote de controlo
 void sendControlPacket(int packetC)
 {
 	char controlPacket[255];

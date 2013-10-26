@@ -22,11 +22,18 @@
 
 #define CHUNK_SIZE 1024
 
-int fd, res, c = 0, n = 0;
+int fd, //file descriptor 
+	res, //resultado da leitura do buffer da porta de serie
+	c = 0, // campo de controlo a alternar entre 0 e 1
+	n = 0;
+
 unsigned int fileSize;
+
 char readBuf[1], writeBuf[255], chunkBuf[CHUNK_SIZE+5], fileName[255]; //TEMP FIX: GUARDA BCC2
 FILE * pFile;
 
+
+// Envia um trama de controlo
 void sendControlFrame(int c)
 {
 	writeBuf[0]=FLAG;
@@ -38,6 +45,7 @@ void sendControlFrame(int c)
 	write(fd, writeBuf, 5);
 }
 
+//Responde a transmitter com um trama de controlo UA
 void setConnection()
 {
 	printf("AWAITING CONNECTION\n");
@@ -59,10 +67,12 @@ int readFrame()
     return frameStateMachine(); //estado inicial
 }
 
+//Maquina de estados para um trama
 int frameStateMachine()
 {
 	int i = 0, bcc2 = 0, state = 0;
     unsigned char readByte, readC;
+
     while(1)
     {
 		read(fd, readBuf, 1);
@@ -96,13 +106,11 @@ int frameStateMachine()
 					else
 							state = 0;
 			break;
-		case 4:
+		case 4: //FLAG
 			if(readByte == FLAG)
 			{
-				if(readC == 0 || readC == 1)
+				if ((readC == 0 || readC == 1) && readC == c) //NOT DUPLICATE
                 {
-					if(readC == c) //NOT DUPLICATE
-					{
                         if(chunkBuf[i-1] == bcc2)
                         {
                             c = !c;
@@ -110,7 +118,6 @@ int frameStateMachine()
                         }
                         else
                             return -1; //reject
-					}
                 }
 				return readC;
 			}
@@ -128,6 +135,7 @@ int frameStateMachine()
     }
 }
 
+//Maquina de estados para um trama de dados e respectivo pacote
 int packetStateMachine()
 {
     printf("GOT DATA FRAME\n");
