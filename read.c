@@ -22,11 +22,12 @@
 
 #define CHUNK_SIZE 1024
 
-int fd, res, c = 0;
-char readBuf[1], writeBuf[255], chunkBuf[CHUNK_SIZE+1]; //TEMP FIX: GUARDA BCC2
+int fd, res, c = 0, n = 0;
+unsigned int fileSize;
+char readBuf[1], writeBuf[255], chunkBuf[CHUNK_SIZE+5], fileName[255]; //TEMP FIX: GUARDA BCC2
 FILE * pFile;
 
-void sendControlTrama(int c)
+void sendControlFrame(int c)
 {
 	writeBuf[0]=FLAG;
     writeBuf[1]=A;
@@ -40,65 +41,33 @@ void sendControlTrama(int c)
 void setConnection()
 {
 	printf("AWAITING CONNECTION\n");
-	if(readTrama() != C_SET)
+	if(readFrame() != C_SET)
 	{
-		printf("\tSET TRAMA MALFORMED, QUITING\n");
+		printf("\tSET FRAME MALFORMED, QUITING\n");
 		exit(1);
 	}
 	else
 	{
-		sendControlTrama(C_UA);
+		sendControlFrame(C_UA);
 		printf("CONNECTION ESTABLISHED\n");
 	}
 }
 
-int readTrama()
+int readFrame()
 {
-    printf("WAITING FOR PACKET\n");
-    //res = read(fd,readBuf,1);
-    return stateMachine(0); //estado inicial
-    /*printf("READ PACKET\n");
-	printf("FLAG -> %x\n", readBuf[0]);
-    if(readBuf[0]==FLAG) //FLAG
-	{
-		res=read(fd,readBuf,1);
-		if(readBuf[0]==A) //ADDRESS
-		{
-			res=read(fd,readBuf,1);
-			int readC = readBuf[0]; //C
-			printf("Read C -> %i\n", readC);
-			res=read(fd,readBuf,1);
-			if(readBuf[0]==A^readC) //BCC1
-			{
-				while (1) {
-					res=read(fd,readBuf,1);
-					if(readBuf[0]!=FLAG)
-						printf("\t%x - %c\n", readBuf[0], readBuf[0]); //FALTA VERIFICAÇÃO DO BCC2
-					else
-					{
-						if(readC == c) //VALID INFORMATION TRAMA
-							c = !c;
-						return readC;
-					}
-				}
-			}	
-		}
-		//printf("%x\n",readBuf[0]); //FLAG
-	}
-	return -1; //MALFORMED
-	*/
-	
+    printf("WAITING FOR FRAME\n");
+    return frameStateMachine(); //estado inicial
 }
 
-int stateMachine(int state)
+int frameStateMachine()
 {
-	int i = 0;
-    char readByte, readC;
+	int i = 0, bcc2 = 0, state = 0;
+    unsigned char readByte, readC;
     while(1)
     {
 		read(fd, readBuf, 1);
 		readByte = readBuf[0];
-		   switch(state)
+		switch(state)
 		{
 		case 0: //FLAG
 			if(readByte == FLAG)
@@ -131,22 +100,81 @@ int stateMachine(int state)
 			if(readByte == FLAG)
 			{
 				if(readC == 0 || readC == 1)
-					if(readC == c) //VALID INFORMATION TRAMA
+                {
+					if(readC == c) //NOT DUPLICATE
 					{
-						c = !c;
-						fwrite(chunkBuf, sizeof(char), i, pFile); //ESTÁ A GUARDAR BCC2
+                        if(chunkBuf[i-1] == bcc2)
+                        {
+                            c = !c;
+                            packetStateMachine();
+                        }
+                        else
+                            return -1; //reject
 					}
+                }
 				return readC;
 			}
 			else
 			{
 				//printf("\t%x - %c\n", readByte, readByte);
 				//printf("I: %i\n", i);
-				chunkBuf[i++] = readByte; //construir chunk (para escrita no ficheiro)
+				chunkBuf[i] = readByte; //construir chunk (para escrita no ficheiro)
+				if(i>0)
+					bcc2^=chunkBuf[i-1]; //to avoid reading BCC2
+				i++;
 			}
 			break;
 		}
     }
+}
+
+int packetStateMachine()
+{
+    printf("GOT DATA FRAME\n");
+    unsigned char c = chunkBuf[0];
+    switch(c)
+    {
+        case 0:
+        {
+            printf("\tDATA PACKET\n");
+            if(chunkBuf[1]==n)
+            {
+                unsigned char l2 = chunkBuf[2], l1 = chunkBuf[3];
+                int k = 256*l2+l1;
+                //printf("\tK -> %i\n", k);
+                fwrite(chunkBuf+4, sizeof(char), k, pFile); //escreve para ficheiro
+                if(n==255)
+                    n=0;
+                else
+                    n++;
+            }
+            break;
+        }
+        case 1:
+        {
+            printf("\tSTART PACKET\n");
+            unsigned char t1 = chunkBuf[1], l1 = chunkBuf[2], i, tmp = l1;
+            for(i=3;i<l1+3;++i)
+                fileSize |= (((unsigned char)chunkBuf[i]) << (8*--tmp));
+                    
+            unsigned char t2 = chunkBuf[i++], l2 = chunkBuf[i++], j=i;
+            for(;i<l2+j;i++)
+                fileName[i-j]=chunkBuf[i];
+            
+            //printf("\t%s\n", fileName);
+            
+            break;
+        }
+        case 2:
+        {
+            printf("\tEND PACKET\n");
+            if(fileSize != ftell(pFile)) //compara tamanho do ficheiro do pacote inicial com o realmente escrito para o ficheiro
+                printf("\nERROR TRANSFERING: WRONG FILE SIZE\n");
+            
+            break;
+        }
+    }
+    return 0;
 }
 
 int main(int argc, char** argv)
@@ -205,6 +233,7 @@ int main(int argc, char** argv)
     printf("New termios structure set\n");
 	
 	
+	//Open file for writing
 	pFile = fopen ( "tmp" , "wb" );
 	if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
 	
@@ -214,31 +243,28 @@ int main(int argc, char** argv)
 	
 	while(1)
 	{
-		int readC = readTrama();
-		if(readC == !c) //JÁ TROCOU
-			sendControlTrama(C_RR ^ c);
-		else if(readC == C_DISC)
+		int readC = readFrame();
+		if(readC == C_DISC)
 		{
-			printf("\nDISCONNECT REQUEST RECEIVED\n"); //FALTAM CENAS
-			sendControlTrama(C_DISC);//FALTAM TIMEOUTS E O ADDRESS ESTÁ MAL!!
-			if(readTrama() == C_UA)
+			printf("DISCONNECT REQUEST RECEIVED\n"); //FALTAM CENAS
+			sendControlFrame(C_DISC);//FALTAM TIMEOUTS E O ADDRESS ESTÁ MAL!!
+			if(readFrame() == C_UA)
 				break;
 		}
-		else
+		else if(readC == -1) //invalid bcc2
 		{
-			printf("\tDATA TRAMA MALFORMED, WAITING...");
-			sendControlTrama(C_REJ ^ c);
+			printf("\nINVALID DATA, SENDING REJECT\n");
+			sendControlFrame(C_REJ ^ c);
 		}
+        else
+			sendControlFrame(C_RR ^ c);
 	}
 	printf("\nALL DONE\n");
 	sleep(1);
 
-  /* 
-    O ciclo WHILE deve ser alterado de modo a respeitar o indicado no guião 
-  */
-
     tcsetattr(fd,TCSANOW,&oldtio);
     close(fd);
 	fclose(pFile);
+    rename("tmp", fileName); //rename file
     return 0;
 }

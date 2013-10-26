@@ -28,8 +28,9 @@
 #define CHUNK_SIZE 1024
 
 
-int fd, conta = 0, writeBufLen, res, c=0, fileSize;
-char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE], readBuf[255], *fileContent;
+int fd, conta = 0, writeBufLen, res, c=0;
+unsigned int fileSize;
+char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE+4], readBuf[255], *fileContent, fileName[255];
 
 int readResponse()
 {
@@ -57,7 +58,7 @@ int readResponse()
 	return -1; //ERROR
 }
 
-void sendTrama()
+void sendFrame()
 {
 	if(conta++ <= MAX_RETRIES)
 	{
@@ -73,7 +74,7 @@ void sendTrama()
 }
 
 
-void sendControlTrama(int c)
+void sendControlFrame(int c)
 {
 	writeBuf[0]=FLAG;
     writeBuf[1]=A;
@@ -95,13 +96,13 @@ void disconnect()
 	writeBufLen=5;
 	printf("DISCONNECTING\n");
 	
-    (void) signal(SIGALRM, sendTrama);
-    sendTrama();
+    (void) signal(SIGALRM, sendFrame);
+    sendFrame();
 	int readC = readResponse();
 	if(readC != C_DISC)
 		disconnect(); //wrong response, send disc again
 	else
-		sendControlTrama(C_UA);
+		sendControlFrame(C_UA);
 }
 
 void setConnection()
@@ -114,8 +115,8 @@ void setConnection()
 	writeBufLen=5;
 	printf("WRITING SET\n");
 	
-    (void) signal(SIGALRM, sendTrama);
-    sendTrama();
+    (void) signal(SIGALRM, sendFrame);
+    sendFrame();
 	if(readResponse() != C_UA)
 	{
 		printf("\tWRONG SET RESPONSE, QUITING\n");
@@ -125,31 +126,93 @@ void setConnection()
 		printf("CONNECTION ESTABLISHED!\n");
 }
 
-void sendDataTrama(char *trama, int numchars)
+void sendData()
 {
-	//Trama de teste
+	unsigned int i, n=0;
+	//pacote de controlo start
+	sendControlPacket(1);
+	
+	for(i=0;i<(fileSize/CHUNK_SIZE);i++) //whole chunks
+	{
+		memcpy(chunkBuf+4, &fileContent[i*CHUNK_SIZE], CHUNK_SIZE); //ADD 4 to accommodate packet information
+		sendDataPacket(chunkBuf, CHUNK_SIZE, n);
+		if(n==255)
+			n=0;
+		else
+			n++;
+	}
+	
+	//last bytes
+	if(fileSize%CHUNK_SIZE>0)
+	{
+		memcpy(chunkBuf+4, &fileContent[i*CHUNK_SIZE], fileSize%CHUNK_SIZE); //ADD 4 to accommodate packet information
+		sendDataPacket(chunkBuf, fileSize%CHUNK_SIZE, n);
+	}
+    
+    //pacote de controlo end
+	sendControlPacket(2);
+}
+
+void sendControlPacket(int packetC)
+{
+	char controlPacket[255];
+	controlPacket[0]=packetC; //C
+	controlPacket[1]=0; //T1 - tamanho do ficheiro
+	int i=3, currentByte, significant = 0;
+	for(currentByte=sizeof(fileSize);currentByte>0;currentByte--)
+	{
+		unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais de fileSize pela ordem msb -> lsb para controlPacket
+		if(!significant)
+			if(byte!=0)
+				significant = 1;
+		if(significant)
+			controlPacket[i++]=byte; //V1
+	}
+	controlPacket[2]=i-3; //L1
+	controlPacket[i++] = 1; //T2 - nome do ficheiro
+	controlPacket[i++] = strlen(fileName); //L2
+	int j;
+	for(j=0;j<strlen(fileName);j++)
+		controlPacket[i++] = fileName[j]; //V2
+		
+	printf("WRITING CONTROL PACKET\n");
+	sendDataFrame(controlPacket, i);
+}
+
+void sendDataPacket(char *packet, int numchars, unsigned char n)
+{
+	packet[0]=0;
+	packet[1]=n;
+	packet[2]=numchars/256;
+	packet[3]=numchars%256;
+    printf("WRITING DATA PACKET\n");
+	sendDataFrame(packet, numchars+4);
+}
+
+void sendDataFrame(char *packet, int numchars)
+{
 	writeBuf[0]=FLAG;
 	writeBuf[1]=A;
 	writeBuf[2]=c;
 	writeBuf[3]=writeBuf[1]^writeBuf[2];
-	int i;
-	printf("ENTROU\n");
+	int i, bcc2 = 0;
 	for(i=4;i<numchars+4;++i) //APPEND
 	{
-		//printf("chunkBuf[%i] -> %c\n", i-4, trama[i-4]);
-		writeBuf[i] = trama[i-4];
+		//printf("chunkBuf[%i] -> %c\n", i-4, packet[i-4]);
+		writeBuf[i] = packet[i-4];
+		bcc2 ^= writeBuf[i];
 	}
-	writeBuf[i++]=0; //XOR COM TODOS OS BYTES ENVIADOS
+	writeBuf[i++]=bcc2; //XOR COM TODOS OS BYTES ENVIADOS
 	writeBuf[i++]=FLAG;
 	writeBufLen = i;
 	
-	printf("WRITING TRAMA\n");
-	sendTrama();
+	printf("WRITING DATA FRAME\n");
+	sendFrame();
 	
 	if(readResponse() != C_RR ^ !c) //aguarda RR
 	{
 		printf("\tREJECT! RESENDING!!!\n");
-		sendDataTrama(trama, numchars); //reenvia
+		sendDataFrame(packet, numchars); //reenvia
 	}
 	else
 	{
@@ -191,7 +254,7 @@ int main(int argc, char** argv)
 {
     struct termios oldtio,newtio;
   
-    int i, sum = 0, speed = 0;
+    int sum = 0, speed = 0;
     
     if (argc < 3){
       printf("Usage:\tnserial SerialPort FileName\n\tex: nserial /dev/ttyS1 text.txt\n");
@@ -237,31 +300,19 @@ int main(int argc, char** argv)
       exit(-1);
     }
 
-    printf("New termios structure set\n");   
+    printf("New termios structure set\n");
 
-	fileSize = openFile(argv[2]);
+	strcpy(fileName, argv[2]);
+
+	fileSize = openFile(fileName);
 	
 	printf("FILESIZE: %i\n", fileSize);
-	
-   /* printf("WRITING PACKET\n");
-    res = write(fd,buf,5);
-    printf("%d bytes written\n", res);*/
     
-	(void) signal(SIGALRM, sendTrama);
+	(void) signal(SIGALRM, sendFrame);
 	setConnection();
 	
-	for(i=0;i<(fileSize/CHUNK_SIZE);i++) //whole chunks
-	{
-		memcpy(chunkBuf, &fileContent[i*CHUNK_SIZE], CHUNK_SIZE);
-		sendDataTrama(chunkBuf, CHUNK_SIZE);
-	}
-	
-	//last bytes
-	if(fileSize%CHUNK_SIZE>0)
-	{
-		memcpy(chunkBuf, &fileContent[i*CHUNK_SIZE], fileSize%CHUNK_SIZE);
-		sendDataTrama(chunkBuf, fileSize%CHUNK_SIZE);
-	}
+	//while(1)
+		sendData();
 	
 	disconnect();
 	
