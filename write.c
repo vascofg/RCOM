@@ -24,14 +24,21 @@
 #define FALSE 0
 #define TRUE 1
 
-#define MAX_RETRIES 3 /* N�mero de envios adicionais a efectuar em caso de n�o haver resposta */
-#define CHUNK_SIZE 1024
+#define MAX_RETRIES 3 /* Numero de envios adicionais a efectuar em caso de nao haver resposta */
+#define CHUNK_SIZE 1024 
 
+int fd, //file descriptor
+	conta = 0, //contador para o alarm
+	writeBufLen, //numero de caracteres a ser escrito para o buffer
+	res, //resultado da leitura do buffer da porta de serie
+	c=0; // campo de controlo a alternar entre 0 e 1
 
-int fd, conta = 0, writeBufLen, res, c=0;
-unsigned int fileSize;
-char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE+4], readBuf[255], *fileContent, fileName[255];
+unsigned int fileSize; // numero de bytes do ficheiro
 
+char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE+4], //tamanho do chunk a enviar mais os 4 campos antes (F,A,C e BCC1)
+	 readBuf[255], *fileContent, fileName[255];
+
+//Trata e devolve a resposta lida enviada pelo receiver
 int readResponse()
 {
 	res = read(fd,readBuf,1); //parado aqui
@@ -58,6 +65,8 @@ int readResponse()
 	return -1; //ERROR
 }
 
+/* (Re-)envia a informacao existente em writeBuf ate 3 vezes
+   É chamada na funcao alarm() */
 void sendFrame()
 {
 	if(conta++ <= MAX_RETRIES)
@@ -73,7 +82,7 @@ void sendFrame()
 	}
 }
 
-
+//Constroi e envia a trama de controlo com 'c' como campo de controlo
 void sendControlFrame(int c)
 {
 	writeBuf[0]=FLAG;
@@ -86,6 +95,31 @@ void sendControlFrame(int c)
 	write(fd, writeBuf, writeBufLen);  
 }
 
+//Trata de iniciar a conexao entre o transmitter e o receiver
+void setConnection()
+{
+	writeBuf[0] = FLAG;
+	writeBuf[1] = A;
+	writeBuf[2] = C_SET;
+	writeBuf[3] = writeBuf[1] ^ writeBuf[2];
+	writeBuf[4] = FLAG;
+	writeBufLen = 5;
+	printf("WRITING SET\n");
+
+	(void)signal(SIGALRM, sendFrame); //instala a rotina que envia um sigalrm quando houver time-out, chamando a funcao sendFrame
+
+	sendFrame();
+
+	if (readResponse() != C_UA)
+	{
+		printf("\tWRONG SET RESPONSE, QUITING\n");
+		exit(1);
+	}
+	else
+		printf("CONNECTION ESTABLISHED!\n");
+}
+
+//Trata de terminar a conexao 
 void disconnect()
 {
 	writeBuf[0]=FLAG;
@@ -96,8 +130,8 @@ void disconnect()
 	writeBufLen=5;
 	printf("DISCONNECTING\n");
 	
-    (void) signal(SIGALRM, sendFrame);
-    sendFrame();
+    (void) signal(SIGALRM, sendFrame); //instala a rotina que envia um sigalrm quando houver time-out, chamando a funcao sendFrame
+	sendFrame(); //Envia trama de controlo com C_DISC
 	int readC = readResponse();
 	if(readC != C_DISC)
 		disconnect(); //wrong response, send disc again
@@ -105,27 +139,8 @@ void disconnect()
 		sendControlFrame(C_UA);
 }
 
-void setConnection()
-{
-	writeBuf[0]=FLAG;
-	writeBuf[1]=A;
-	writeBuf[2]=C_SET;
-	writeBuf[3]=writeBuf[1]^writeBuf[2];
-	writeBuf[4]=FLAG;
-	writeBufLen=5;
-	printf("WRITING SET\n");
-	
-    (void) signal(SIGALRM, sendFrame);
-    sendFrame();
-	if(readResponse() != C_UA)
-	{
-		printf("\tWRONG SET RESPONSE, QUITING\n");
-		exit(1);
-	}
-	else
-		printf("CONNECTION ESTABLISHED!\n");
-}
 
+//Trata do envio de dados, no devido formato 
 void sendData()
 {
 	unsigned int i, n=0;
@@ -153,6 +168,40 @@ void sendData()
 	sendControlPacket(2);
 }
 
+//Funcao auxiliar que envia um trama de dados com um pacote 'packet'
+void sendDataFrame(char *packet, int numchars)
+{
+	writeBuf[0] = FLAG;
+	writeBuf[1] = A;
+	writeBuf[2] = c;
+	writeBuf[3] = writeBuf[1] ^ writeBuf[2];
+	int i, bcc2 = 0;
+	for (i = 4; i<numchars + 4; ++i) //APPEND
+	{
+		//printf("chunkBuf[%i] -> %c\n", i-4, packet[i-4]);
+		writeBuf[i] = packet[i - 4];
+		bcc2 ^= writeBuf[i];
+	}
+	writeBuf[i++] = bcc2; //XOR COM TODOS OS BYTES ENVIADOS
+	writeBuf[i++] = FLAG;
+	writeBufLen = i;
+
+	printf("WRITING DATA FRAME\n");
+	sendFrame();
+
+	if (readResponse() != C_RR ^ !c) //aguarda RR
+	{
+		printf("\tREJECT! RESENDING!!!\n");
+		sendDataFrame(packet, numchars); //reenvia
+	}
+	else
+	{
+		c = !c;
+		printf("\tRECEIVER READY!\n");
+	}
+}
+
+//Envia trama de dados com um pacote de controlo
 void sendControlPacket(int packetC)
 {
 	char controlPacket[255];
@@ -161,7 +210,7 @@ void sendControlPacket(int packetC)
 	int i=3, currentByte, significant = 0;
 	for(currentByte=sizeof(fileSize);currentByte>0;currentByte--)
 	{
-		unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais de fileSize pela ordem msb -> lsb para controlPacket
+		unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais(octetos) de fileSize pela ordem msb -> lsb para controlPacket
 		if(!significant)
 			if(byte!=0)
 				significant = 1;
@@ -179,6 +228,7 @@ void sendControlPacket(int packetC)
 	sendDataFrame(controlPacket, i);
 }
 
+//Envia trama de dados com um pacote de dados
 void sendDataPacket(char *packet, int numchars, unsigned char n)
 {
 	packet[0]=0;
@@ -189,38 +239,7 @@ void sendDataPacket(char *packet, int numchars, unsigned char n)
 	sendDataFrame(packet, numchars+4);
 }
 
-void sendDataFrame(char *packet, int numchars)
-{
-	writeBuf[0]=FLAG;
-	writeBuf[1]=A;
-	writeBuf[2]=c;
-	writeBuf[3]=writeBuf[1]^writeBuf[2];
-	int i, bcc2 = 0;
-	for(i=4;i<numchars+4;++i) //APPEND
-	{
-		//printf("chunkBuf[%i] -> %c\n", i-4, packet[i-4]);
-		writeBuf[i] = packet[i-4];
-		bcc2 ^= writeBuf[i];
-	}
-	writeBuf[i++]=bcc2; //XOR COM TODOS OS BYTES ENVIADOS
-	writeBuf[i++]=FLAG;
-	writeBufLen = i;
-	
-	printf("WRITING DATA FRAME\n");
-	sendFrame();
-	
-	if(readResponse() != C_RR ^ !c) //aguarda RR
-	{
-		printf("\tREJECT! RESENDING!!!\n");
-		sendDataFrame(packet, numchars); //reenvia
-	}
-	else
-	{
-		c = !c;
-		printf("\tRECEIVER READY!\n");
-	}
-}
-
+//Abre ficheiro para leitura em binario, devolvendo o tamanho em bytes do ficheiro
 int openFile(char *fileName)
 {
 	FILE * pFile;
