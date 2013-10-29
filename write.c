@@ -35,9 +35,33 @@ int fd, //file descriptor
 
 unsigned int fileSize; // numero de bytes do ficheiro
 
-char writeBuf[CHUNK_SIZE+10], chunkBuf[CHUNK_SIZE+4], //tamanho do chunk a enviar mais os 4 campos antes (F,A,C e BCC1)
+char writeBuf[CHUNK_SIZE*2+10], chunkBuf[CHUNK_SIZE+4], //tamanho do chunk a enviar mais os 4 campos antes (F,A,C e BCC1)
 	 readBuf[255], *fileContent, fileName[255];
 
+
+int stuffBytes(unsigned int numChars)
+{
+	int i=4; //avança os quatro primeiros (cabeçalho da trama)
+	for(;i<numChars+4;i++)
+	{
+		if(writeBuf[i]==0x7e)
+		{
+			memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4)); //avança todos os caracteres uma posição
+			writeBuf[i]=0x7d;
+			writeBuf[++i]=0x5e;
+			numChars++; //há mais um caracter a transmitir
+		}
+		else if(writeBuf[i]==0x7d)
+		{
+			memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4)); //avança todos os caracteres uma posição
+			writeBuf[i]=0x7d;
+			writeBuf[++i]=0x5d;
+			numChars++; //há mais um caracter a transmitir
+		}
+	}
+	return numChars; //retorna novo número de caracteres a transmitir
+}	 
+	 
 //Trata e devolve a resposta lida enviada pelo receiver
 int readResponse()
 {
@@ -169,35 +193,41 @@ void sendData()
 }
 
 //Funcao auxiliar que constroi e envia um trama de dados com um pacote 'packet'
-void sendDataFrame(char *packet, int numchars)
+void sendDataFrame(char *packet, int packetChars)
 {
+	//cabeçalho da trama
 	writeBuf[0] = FLAG;
 	writeBuf[1] = A;
 	writeBuf[2] = c;
 	writeBuf[3] = writeBuf[1] ^ writeBuf[2];
 	int i, bcc2 = 0;
-	for (i = 4; i<numchars + 4; ++i) //APPEND
+	
+	//dados
+	for (i = 4; i<packetChars + 4; ++i)
 	{
-		//printf("chunkBuf[%i] -> %c\n", i-4, packet[i-4]);
 		writeBuf[i] = packet[i - 4];
+		//printf("writeBuf[%i] -> %x\n", i, writeBuf[i]);
 		bcc2 ^= writeBuf[i];
 	}
-	writeBuf[i++] = bcc2; //XOR COM TODOS OS BYTES ENVIADOS
+	writeBuf[i++] = bcc2;
+	int packetCharsAfterStuffing = stuffBytes(packetChars+1); //Número de caracteres para fazer stuffing
+	//printf("%x\n", bcc2);
+	i=packetCharsAfterStuffing+4; //posição no índice seguinte é igual ao novo número de caracteres a transmitir + cabeçalho da trama
 	writeBuf[i++] = FLAG;
 	writeBufLen = i;
 
 	printf("WRITING DATA FRAME\n");
 	sendFrame();
 
-	if (readResponse() != C_RR ^ !c) //aguarda RR
+	if (readResponse() == C_RR ^ !c)  //RR
+	{
+		c = !c; //ALTERNA C
+		printf("\tRECEIVER READY!\n");
+	}
+	else //REJECT (ACRESCENTAR VERIFICAÇÃO DO REJECT ?? (C_REJ ^ !c)??
 	{
 		printf("\tREJECT! RESENDING!!!\n");
-		sendDataFrame(packet, numchars); //reenvia
-	}
-	else
-	{
-		c = !c;
-		printf("\tRECEIVER READY!\n");
+		sendDataFrame(packet, packetChars); //reenvia
 	}
 }
 
@@ -208,20 +238,24 @@ void sendControlPacket(int packetC)
 	controlPacket[0]=packetC; //C
 	controlPacket[1]=0; //T1 - tamanho do ficheiro
 	int i=3, currentByte, significant = 0;
-	for(currentByte=sizeof(fileSize);currentByte>0;currentByte--)
+	
+	for(currentByte=sizeof(fileSize);currentByte>0;currentByte--) //percorre inteiro byte a byte do mais significativo para o menos
 	{
-		unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais(octetos) de fileSize pela ordem msb -> lsb para controlPacket
-		if(!significant)
-			if(byte!=0)
-				significant = 1;
-		if(significant)
+		unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais(octetos) para controlPacket
+		
+		if(!significant) //enquanto forem não significativos
+			if(byte!=0) //se byte actual não for zero
+				significant = 1; //todos os seguintes são significativos
+		if(significant) //para todos os bytes significativos, enviar
 			controlPacket[i++]=byte; //V1
 	}
+	
 	controlPacket[2]=i-3; //L1
 	controlPacket[i++] = 1; //T2 - nome do ficheiro
 	controlPacket[i++] = strlen(fileName); //L2
-	int j;
-	for(j=0;j<strlen(fileName);j++)
+	
+	int j;	
+	for(j=0;j<strlen(fileName);j++) //escreve caracteres individuais do nome do ficheiro
 		controlPacket[i++] = fileName[j]; //V2
 		
 	printf("WRITING CONTROL PACKET\n");
@@ -229,14 +263,15 @@ void sendControlPacket(int packetC)
 }
 
 //Envia trama de dados com um pacote de dados
-void sendDataPacket(char *packet, int numchars, unsigned char n)
+void sendDataPacket(char *packet, int dataChars, unsigned char n)
 {
+	//cabeçalho do pacote
 	packet[0]=0;
 	packet[1]=n;
-	packet[2]=numchars/256;
-	packet[3]=numchars%256;
+	packet[2]=dataChars/256;
+	packet[3]=dataChars%256;
     printf("WRITING DATA PACKET\n");
-	sendDataFrame(packet, numchars+4);
+	sendDataFrame(packet, dataChars+4); //por causa do cabeçalho
 }
 
 //Abre ficheiro para leitura em binario, devolvendo o tamanho em bytes do ficheiro
@@ -330,8 +365,7 @@ int main(int argc, char** argv)
 	(void) signal(SIGALRM, sendFrame);
 	setConnection();
 	
-	//while(1)
-		sendData();
+	sendData();
 	
 	disconnect();
 	

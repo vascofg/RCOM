@@ -33,6 +33,7 @@ char readBuf[1], writeBuf[255], chunkBuf[CHUNK_SIZE+5], fileName[255]; //TEMP FI
 FILE * pFile;
 
 
+
 // Envia um trama de controlo
 void sendControlFrame(int c)
 {
@@ -125,9 +126,21 @@ int frameStateMachine()
 			{
 				//printf("\t%x - %c\n", readByte, readByte);
 				//printf("I: %i\n", i);
+				
+				//destuffing
+				if(readByte==0x7d) //se caracter for 0x7d, destuff
+				{
+					read(fd, readBuf, 1); //lê o próximo
+					readByte=readBuf[0];
+					if(readByte == 0x5e)
+						readByte = 0x7e;
+					else if(readByte == 0x5d)
+						readByte = 0x7d;
+				}
+				
 				chunkBuf[i] = readByte; //construir chunk (para escrita no ficheiro)
 				if(i>0)
-					bcc2^=chunkBuf[i-1]; //to avoid reading BCC2
+					bcc2^=chunkBuf[i-1]; //para não fazer xor do bcc2 com o próprio bcc2 (seria sempre 0)
 				i++;
 			}
 			break;
@@ -145,7 +158,7 @@ int packetStateMachine()
         case 0:
         {
             printf("\tDATA PACKET\n");
-            if(chunkBuf[1]==n)
+            if(chunkBuf[1]==n) //se não for um pacote duplicado, grava para ficheiro, se não manda na mesma RR
             {
                 unsigned char l2 = chunkBuf[2], l1 = chunkBuf[3];
                 int k = 256*l2+l1;
@@ -175,6 +188,7 @@ int packetStateMachine()
         }
         case 2:
         {
+			//FALTAM VERIFICAÇÕES DO END PACKET??
             printf("\tEND PACKET\n");
             if(fileSize != ftell(pFile)) //compara tamanho do ficheiro do pacote inicial com o realmente escrito para o ficheiro
                 printf("\nERROR TRANSFERING: WRONG FILE SIZE\n");
@@ -226,7 +240,7 @@ int main(int argc, char** argv)
 
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) pr�ximo(s) caracter(es)
+    leitura do(s) próximo(s) caracter(es)
   */
 
 
@@ -255,7 +269,7 @@ int main(int argc, char** argv)
 		if(readC == C_DISC)
 		{
 			printf("DISCONNECT REQUEST RECEIVED\n"); //FALTAM CENAS
-			sendControlFrame(C_DISC);//FALTAM TIMEOUTS E O ADDRESS EST� MAL!!
+			sendControlFrame(C_DISC);//FALTAM TIMEOUTS E O ADDRESS ESTÁ MAL!!
 			if(readFrame() == C_UA)
 				break;
 		}
