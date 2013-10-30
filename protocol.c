@@ -271,6 +271,8 @@ int disconnect(int fd, int user) //0 writer, 1 reader
 		}
 	}
 	
+	sleep(1); //wait before closing connection
+	
 	//close connection
 	if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
       perror("tcsetattr");
