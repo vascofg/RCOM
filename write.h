@@ -5,7 +5,7 @@
 #include <strings.h>
 #include <string.h>
 
-#define CHUNK_SIZE 1024 
+#define CHUNK_SIZE 100
 
 int llopen(char *porta);
 void sendFile(int fd, unsigned int fileSize, char *fileName, char *fileContent);
