@@ -196,7 +196,7 @@ int readFrame(int fd, char * buffer, int *res)
 				//reinicia timeouts
 				alarm(0);
 				conta=0;
-				if ((readC == 0 || readC == 1) && readC == c) //DATA FRAME, NOT DUPLICATE
+				if (readC == c) //DATA FRAME, NOT DUPLICATE
                 {
 					numTramas++; //incrementa tramas recebidas (reader)
 					*res = i-1; //-1 é o bcc
