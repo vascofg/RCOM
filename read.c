@@ -3,7 +3,6 @@
 //Maquina de estados para um trama de dados e respectivo pacote
 int packetStateMachine(char *buffer)
 {
-    printf("GOT DATA FRAME\n");
     unsigned char c = buffer[0];
     switch(c)
     {
