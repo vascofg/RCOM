@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#define CHUNK_SIZE 1024
+#define CHUNK_SIZE 100
 
 int n = 0;
 
