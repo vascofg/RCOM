@@ -26,12 +26,15 @@
 #define TRUE 1
 
 #define MAX_RETRIES 3 /* Numero de envios adicionais a efectuar em caso de nao haver resposta */
-#define CHUNK_SIZE 1024 
+#define CHUNK_SIZE 100 
 
 int	conta = 0, //contador para o alarm
 	c=0, // campo de controlo a alternar entre 0 e 1
 	globalFD, // para passar para signal handler
-	writeBufLen;
+	writeBufLen,
+	numTramas=0,
+	numTimeouts=0,
+	numRejects=0;
 	
 struct termios oldtio; //para restaurar definições da porta série no final
 

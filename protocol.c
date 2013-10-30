@@ -27,6 +27,8 @@ int stuffBytes(unsigned int numChars)
    É chamada na funcao alarm() */
 void sendFrame()
 {
+	if(conta>0) //incrementa numero de timeouts
+		numTimeouts++;
 	if(conta++ <= MAX_RETRIES)
 	{
 		write(globalFD, writeBuf, writeBufLen);
@@ -139,6 +141,7 @@ int readData(int fd, char * buffer)
 	else if(readC == -1) //invalid bcc2
 	{
 		printf("\nINVALID DATA, SENDING REJECT\n");
+		numRejects++;
 		sendControlFrame(fd, C_REJ ^ c);
 		return -1;
 	}
@@ -195,6 +198,7 @@ int readFrame(int fd, char * buffer, int *res)
 				conta=0;
 				if ((readC == 0 || readC == 1) && readC == c) //DATA FRAME, NOT DUPLICATE
                 {
+					numTramas++; //incrementa tramas recebidas (reader)
 					*res = i-1; //-1 é o bcc
 					if(buffer[i-1] == bcc2)
 					{
@@ -280,6 +284,10 @@ int disconnect(int fd, int user) //0 writer, 1 reader
     }
 
     close(fd);
+    //IMPRIME ESTATISTICAS
+    printf("Número de tramas I: %i\n", numTramas);
+    printf("Número de timeouts: %i\n", numTimeouts);
+    printf("Número de rejects I: %i\n", numRejects);
 	return 0;
 }
 
@@ -318,9 +326,12 @@ int sendData(int fd, char *packet, int packetChars)
 	}
 	else //REJECT OR INVALID RESPONSE
 	{
+		numRejects++;
 		printf("\tREJECT! RESENDING!!!\n");
 		sendData(fd, packet, packetChars); //reenvia
 	}
+
+	numTramas++; //incrementa tramas enviadas (writer)
 	
 	return packetChars;
 }
