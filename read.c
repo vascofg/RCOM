@@ -9,7 +9,7 @@ int packetStateMachine(char *buffer)
         case 0:
         {
             printf("\tDATA PACKET\n");
-            if(buffer[1]==n) //se não for um pacote duplicado, grava para ficheiro, se não manda na mesma RR
+            if(buffer[1]==n) //se não for um pacote duplicado, grava para ficheiro
             {
                 unsigned char l2 = buffer[2], l1 = buffer[3];
                 int k = 256*l2+l1;

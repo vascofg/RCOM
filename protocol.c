@@ -179,8 +179,10 @@ int readFrame(int fd, char * buffer, int *res)
 			readC = readByte;
 			if(readByte == FLAG)
 				state = 1;
-			else
+			else if(readByte == C_SET || readByte == C_UA || readByte == C_DISC || readByte == C_RR ^ (alternaC(c)<<4) || readByte == C_REJ ^ (alternaC(c)<<4) || readByte == C_RR ^ (c<<4) || readByte == C_REJ ^ (c<<4) || readByte == 0 || readByte == 2)
 				state = 3;
+			else
+				state = 0;
 			break;
 		case 3: // BCC1
 			if(readByte == A ^ readC)
@@ -202,11 +204,7 @@ int readFrame(int fd, char * buffer, int *res)
 					*res = i-1; //-1 é o bcc
 					if(buffer[i-1] == bcc2)
 					{
-						//ALTERNA C
-						if(c==0)
-							c=2;
-						else
-							c=0;
+						c=alternaC(c);
 					}
 					else
 					{
@@ -323,22 +321,13 @@ int sendData(int fd, char *packet, int packetChars)
 	globalFD = fd;
 	sendFrame();
 
-	//ALTERNA C
-	if(c==0)
-		c=2;
-	else
-		c=0;
-	if (readFrame(fd, NULL, NULL) == C_RR ^ (c<<4))  //RR
+	if (readFrame(fd, NULL, NULL) == (C_RR ^ (alternaC(c)<<4)))  //RR
 	{
+        c=alternaC(c);
 		printf("\tRECEIVER READY!\n");
 	}
 	else //REJECT OR INVALID RESPONSE
 	{
-		//ALTERNA C
-		if(c==0)
-			c=2;
-		else
-			c=0;
 		numRejects++;
 		printf("\tREJECT! RESENDING!!!\n");
 		sendData(fd, packet, packetChars); //reenvia
@@ -347,5 +336,13 @@ int sendData(int fd, char *packet, int packetChars)
 	numTramas++; //incrementa tramas enviadas (writer)
 	
 	return packetChars;
+}
+
+int alternaC(int c)
+{
+    if(c==0)
+        return 2;
+    else
+        return 0;
 }
 

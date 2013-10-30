@@ -29,7 +29,7 @@
 #define CHUNK_SIZE 100 
 
 int	conta = 0, //contador para o alarm
-	c=0, // campo de controlo a alternar entre 0 e 1
+	c=0, // campo de controlo a alternar entre 0 e 2
 	globalFD, // para passar para signal handler
 	writeBufLen,
 	numTramas=0,
