@@ -142,12 +142,12 @@ int readData(int fd, char * buffer)
 	{
 		printf("\nINVALID DATA, SENDING REJECT\n");
 		numRejects++;
-		sendControlFrame(fd, C_REJ ^ c);
+		sendControlFrame(fd, C_REJ ^ (c<<4)); //passa os 4 bits do c para a esquerda
 		return -1;
 	}
 	else
 	{
-		sendControlFrame(fd, C_RR ^ c);
+		sendControlFrame(fd, C_RR ^ (c<<4));
 		return res;
 	}
 }
@@ -202,7 +202,11 @@ int readFrame(int fd, char * buffer, int *res)
 					*res = i-1; //-1 é o bcc
 					if(buffer[i-1] == bcc2)
 					{
-						c = !c;
+						//ALTERNA C
+						if(c==0)
+							c=2;
+						else
+							c=0;
 					}
 					else
 					{
@@ -319,9 +323,13 @@ int sendData(int fd, char *packet, int packetChars)
 	globalFD = fd;
 	sendFrame();
 
-	if (readFrame(fd, NULL, NULL) == C_RR ^ !c)  //RR
+	if (readFrame(fd, NULL, NULL) == C_RR ^ (!c<<4))  //RR
 	{
-		c = !c; //ALTERNA C
+		//ALTERNA C
+		if(c==0)
+			c=2;
+		else
+			c=0;
 		printf("\tRECEIVER READY!\n");
 	}
 	else //REJECT OR INVALID RESPONSE
