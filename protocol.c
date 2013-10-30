@@ -323,17 +323,22 @@ int sendData(int fd, char *packet, int packetChars)
 	globalFD = fd;
 	sendFrame();
 
-	if (readFrame(fd, NULL, NULL) == C_RR ^ (!c<<4))  //RR
+	//ALTERNA C
+	if(c==0)
+		c=2;
+	else
+		c=0;
+	if (readFrame(fd, NULL, NULL) == C_RR ^ (c<<4))  //RR
+	{
+		printf("\tRECEIVER READY!\n");
+	}
+	else //REJECT OR INVALID RESPONSE
 	{
 		//ALTERNA C
 		if(c==0)
 			c=2;
 		else
 			c=0;
-		printf("\tRECEIVER READY!\n");
-	}
-	else //REJECT OR INVALID RESPONSE
-	{
 		numRejects++;
 		printf("\tREJECT! RESENDING!!!\n");
 		sendData(fd, packet, packetChars); //reenvia
