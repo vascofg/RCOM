@@ -1,4 +1,4 @@
-\documentclass[a4paper]{article}
+\documentclass[a4paper,11pt]{article}
 
 %use the english line for english reports
 %usepackage[english]{babel}
@@ -8,11 +8,12 @@
 \usepackage{graphicx}
 \usepackage{verbatim}
 \usepackage{float}
-
+\usepackage{listings}
+\usepackage[margin=3cm]{geometry}
 
 \begin{document}
-
-\setlength{\textwidth}{16cm}
+\lstset{breaklines=true}
+%\setlength{\textwidth}{16cm}
 \setlength{\textheight}{22cm}
 
 \title{\Huge\textbf{Protocolo de Ligação de Dados}\linebreak\linebreak\linebreak
@@ -37,6 +38,306 @@ Jorge Filipe Monteiro Lima - 201000649
 
 \newpage
 
-\section*{Resumo}
+\section{Protocolo de ligação lógica}
+O protocolo de ligação lógica tem os seguintes aspectos funcionais:
+\begin{itemize}
+  \item Envio de tramas de supervisão
+  \item Envio de tramas com \textit{timeout}
+  \item Estabelecimento de ligação
+  \item Construção e envio de tramas de informação
+  \item \textit{Byte stuffing}
+  \item Leitura de tramas
+  \item Extração de pacotes de dados de tramas de informação
+  \item Término de ligação
+\end{itemize}
 
+\subsection{Envio de tramas de supervisão}
+
+As tramas de supervisão são enviadas com a seguinte função:\\
+
+\lstset{language=C,
+		showstringspaces=false}
+		
+\begin{lstlisting}
+void sendControlFrame(int fd, int c)
+{
+    writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=c;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+    writeBufLen=5;
+    printf("SENDING COMMAND 0x%x\n", c);
+    write(fd, writeBuf, writeBufLen);  
+}
+\end{lstlisting}
+Esta função constrói uma trama de supervisão, sendo que o byte C é passado como parâmetro.
+
+\subsection{Envio de tramas com \textit{timeout}}
+
+Para enviar tramas com protecção de \textit{timeout} criamos a seguinte função:
+
+\begin{lstlisting}
+void sendFrame()
+{
+    if(conta>0) //incrementa numero de timeouts
+        numTimeouts++;
+        if(conta++ <= MAX_RETRIES)
+        {
+            write(globalFD, writeBuf, writeBufLen);
+            printf("\tSENDING PACKET\n");
+            alarm(3);
+        }
+        else
+        {
+            printf("CONNECTION LOST... GIVING UP\n");
+            exit(1);
+        }
+}
+\end{lstlisting}
+
+Esta função é registada no programa como \textit{handler} do \textit{SIGALRM} e de cada vez que é chamada, no máximo o número de vezes definido em \textit{MAX\_RETRIES}, é chamada novamente.
+Quando houver a leitura de uma trama válida, os alarmes pendentes são cancelados.
+
+\subsection{Estabelecimento de ligação}
+
+Para estabelecer a ligação, a seguinte função é chamada:\\
+		
+\begin{lstlisting}
+int setConnection(char * porta, int user)
+\end{lstlisting}
+
+O parâmetro user toma os valores de 0 para o emissor e 1 para o receptor.
+Esta função configura a porta série e, do lado do emissor, envia a trama de supervisão \textbf{SET} e aguarda pela recepção da trama \textbf{UA}.
+Do lado do receptor aguarda a recepção da trama \textbf{SET}, envia a trama \textbf{UA} e de seguida os dois computadores estão prontos para a transmissão de dados.
+
+\subsection{Construção e envio de tramas de informação}
+
+Criamos a seguinte função (chamada pelo emissor, na camada da aplicação) para a construção de uma trama de informação:
+
+\begin{lstlisting}
+int sendData(int fd, char *packet, int packetChars)
+\end{lstlisting}
+
+O conteúdo do pacote e o seu tamanho são passados da aplicação pelos parâmetros \textit{*packet} e \textit{packetChars}.
+De seguida, é construído o cabeçalho da trama e os dados são inseridos:
+\begin{lstlisting}
+for (i = 4; i<packetChars + 4; ++i)
+{
+    writeBuf[i] = packet[i - 4];
+    //printf("writeBuf[%i] -> %x\n", i, writeBuf[i]);
+    bcc2 ^= writeBuf[i];
+}
+\end{lstlisting}
+
+O bcc2 é assim calculado, e os bytes são \textit{stuffed}:
+\begin{lstlisting}
+int packetCharsAfterStuffing = stuffBytes(packetChars+1);
+\end{lstlisting}
+De seguida, a trama é enviada e aguarda-se a resposta (fazendo novas tentativas enquanto não houver uma resposta).
+Se a resposta for afirmativa (\textbf{RR}), a função alterna o C (entre 0 e 2) e retorna, em caso contrário (\textbf{RR}) a função volta a ser chamada para efectuar o reenvio.
+
+\subsection{\textit{Byte stuffing}}
+O tratamento dos dados a enviar (\textit{stuffing} é feito pela seguinte função:
+\begin{lstlisting}
+int stuffBytes(unsigned int numChars)
+\end{lstlisting}
+Esta função percorre todos os caracteres dos dados a enviar e, caso encontre os \textit{bytes} \textbf{0x7e} ou \textbf{0x7d}, passa todos os bytes seguintes uma posição para a direita e insere os caracteres de escape apropriados (\textbf{0x5e} ou \textbf{0x5d}, respectivamente):
+\begin{lstlisting}
+memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4));
+writeBuf[i]=0x7d;
+writeBuf[++i]=<0x5e ou 0x5d>;
+\end{lstlisting}
+
+\subsection{Leitura de tramas}
+
+Utilizamos uma única função para ler tramas de informação e supervisão:
+
+\begin{lstlisting}
+int readFrame(int fd, char * buffer, int *res)
+\end{lstlisting}
+
+Esta função, que representa uma máquina de estados, lê, caracter a caracter, uma trama da porta série e retorna o byte C lido. Sendo uma máquina de estados, esta função só retorna quando tiver sido lida uma trama bem formada, na sua totalidade.
+
+Se se tratar de uma trama de informação, a função escreve os bytes da secção de dados da trama para o array de caracteres \textit{buffer} (passado como parâmetro) e no final escreve também o número de caracteres lidos para o apontador de inteiro \textit{res}. É também alternado o C, entre 0 e 2.
+
+\subsection{Extração de pacotes de dados de tramas de informação}
+
+De seguida, temos a função que é chamada pelo leitor, na camada de aplicação, para receber pacotes:
+
+\begin{lstlisting}
+int readData(int fd, char * buffer)
+\end{lstlisting}
+
+Esta função chama a função anteriormente descrita, faz o tratamento correcto das repostas a dar (conforme a validação do BCC2) e escreve em \textit{*buffer} o pacote lido.
+
+É ainda nesta função que recebemos a trama \textbf{DISC}, vinda do emissor, e passamos essa informação ao receptor.
+
+\subsection{Término de ligação}
+
+Por fim, temos a função que termina a ligação:
+
+\begin{lstlisting}
+int disconnect(int fd, int user)
+\end{lstlisting}
+
+De acordo com o parâmetro user (0 para emissor, 1 para receptor), envia as tramas \textbf{DISC} e \textbf{UA} apropriadas e fecha a ligação à porta série.
+
+É também nesta função que mostramos ao utilizador as estatísticas da transmissão.
+
+\section{Protocolo de aplicação}
+
+O protocolo de aplicação tem os seguintes aspectos funcionais:
+
+\begin{itemize}
+  \item Abertura e fecho de ligação
+  \item Emissor - processamento do ficheiro a enviar
+  \item Emissor - envio de pacotes
+  \item Receptor - recepção de pacotes
+\end{itemize}
+
+\subsection{Abertura e fecho de ligação}
+
+A aplicação, quando é aberta, recebe por argumento a porta série a utilizar. Com esta informação, é chamada a função:
+
+\begin{lstlisting}
+int llopen(char *porta)
+\end{lstlisting}
+
+que simplesmente chama a função \textbf{setConnection} do protocolo de ligação lógica.
+
+Por sua vez, a função \textbf{llclose} chama a função \textbf{disconnect}.
+
+\subsection{Emissor - processamento do ficheiro a enviar}
+
+O emissor recebe por argumento o nome do ficheiro a enviar. Com este nome, chama a seguinte função:
+
+\begin{lstlisting}
+int openFile(char *fileName, char **fileContent)
+\end{lstlisting}
+
+que guarda em \textit{**fileContent} o conteúdo do ficheiro e retorna o seu tamanho.
+
+De seguida, a função
+
+\begin{lstlisting}
+void sendFile(int fd, unsigned int fileSize, char *fileName, char *fileContent)
+\end{lstlisting}
+
+divide o ficheiro em \textit{chunks} e envia-os.
+
+\subsection{Emissor - envio de pacotes}
+
+A função que trata de construir e enviar os pacotes de controlo é a seguinte:
+
+\begin{lstlisting}
+void sendControlPacket(int fd, int packetC, unsigned int fileSize, char *fileName)
+\end{lstlisting}
+
+Esta função recebe o tipo de pacote a enviar (\textit{Start} ou \textit{End}), constrói-o e envia-o. 
+
+Quanto aos pacotes de dados, a função é esta:
+
+\begin{lstlisting}
+void sendDataPacket(int fd, char *packet, int dataChars, unsigned char n)
+\end{lstlisting}
+
+Recebe o \textit{chunk} a enviar no parâmetro \textit{*packet}, o seu tamanho e o N (número de referência do pacote), envia o pacote.
+
+\subsection{Receptor - recepção de pacotes}
+
+O receptor recebe pacotes até o protocolo lhe transmitir um pedido de \textit{disconnect}.
+No início, cria um ficheiro temporário para onde vai guardando os \textit{chunks} e no final renomeia esse ficheiro para o nome recebido nos pacotes de controlo.
+
+A função que lida com os pacotes é esta:
+
+\begin{lstlisting}
+int packetStateMachine(char *buffer)
+\end{lstlisting}
+
+De acordo com o tipo de pacote recebido, armazena as informações sobre o ficheiro em variáveis globais (pacotes de controlo) ou processa os dados recebidos (pacotes de dados).
+
+Os pacotes de dados são verificados, através do \textbf{N} (número de referência) e, se não se tratar de um pacote duplicado, armazena o \textit{chunk} para o ficheiro.
+
+\section{Validação}
+
+O protocolo faz verificações a dois níveis: a nível das tramas com o \textbf{BCC1}, que é um xor dos campos do cabeçalho e o \textbf{C}, que alterna entre 0 e 2. Estes valores são passados no cabeçalho das tramas.\\
+Verifica ainda, a nível dos pacotes, o \textbf{N}, um número de referência que assume valores entre 0 e 255.
+
+Todos os valores estão sincronizados entre emissor e receptor, de forma a poderem ser verificados.
+
+\section{Elementos de valorização}
+
+Os elementos de valorização implementados foram os seguintes:
+
+\begin{description}
+\item[Implementação de REJ] \hfill \\
+As tramas rejeitadas implicam são reenviadas, sem ser necessário esperar pelo próximo timeout:
+
+Do lado do receptor:
+\begin{lstlisting}
+else if(readC == -1) //invalid bcc2
+{
+    printf("\nINVALID DATA, SENDING REJECT\n");
+    numRejects++;
+    sendControlFrame(fd, C_REJ ^ (c<<4)); //passa os 4 bits do c para a esquerda
+    return -1;
+}
+\end{lstlisting}
+	Do lado do emissor:
+\begin{lstlisting}
+else //REJECT OR INVALID RESPONSE
+{
+    numRejects++;
+    printf("\tREJECT! RESENDING!!!\n");
+    sendData(fd, packet, packetChars); //reenvia
+}
+\end{lstlisting}
+
+\item[Verificação da integridade dos dados pela Aplicação] \hfill \\
+\begin{description}
+\item[Tamanho do ficheiro recebido] \hfill \\
+É validado no leitor através dos pacotes de controlo:
+\begin{lstlisting}
+if(fileSize != ftell(pFile))
+    printf("\nERROR TRANSFERING: WRONG FILE SIZE\n");
+\end{lstlisting}
+
+\item[Pacotes de dados duplicados] \hfill \\
+Validação feita na leitura de pacotes, do lado do leitor, com o número de referência \textbf{N}:
+
+\begin{lstlisting}
+if(buffer[1]==n) //se nao for um pacote duplicado, grava para ficheiro
+\end{lstlisting}
+
+\end{description}
+
+\item[Registo de ocorrências] \hfill \\
+Ocorrências são gravadas em variáveis globais e escritas ao sair do programa:
+
+\begin{lstlisting}
+//IMPRIME ESTATISTICAS
+printf("Numero de tramas I: %i\n", numTramas);
+printf("Numero de timeouts: %i\n", numTimeouts);
+printf("Numero de rejects I: %i\n", numRejects);
+\end{lstlisting}
+
+\end{description}
+
+\section{Conclusões}
+
+No final deste trabalho concluímos que a definição \textit{à priori} de todas as especificações para o mesmo é extremamente importante e merecedora do tempo nela investido. Só assim podemos evitar constantes obstáculos inerentes da incerteza de como proceder em determinadas situações críticas.
+
+Assim, ficou reforçada a ideia de que para ser engenheiro não basta saber programar, mas também saber planear com exactidão os passos a percorrer no desenvolvimento de qualquer sistema ou aplicação.
+
+Quanto ao tópico do trabalho, pareceu-nos uma boa maneira de abordar, de forma introdutória, a temática das redes de computadores, os problemas mais comuns que podem surgir e como os solucionar.
+
+\newpage
+
+\vspace*{\fill} 
+\centering
+\begin{Huge}\textbf{ANEXO 1 - CÓDIGO FONTE}\end{Huge}
+\vspace*{\fill}
+\thispagestyle{empty}
+\setcounter{page}{1}
 \end{document}
