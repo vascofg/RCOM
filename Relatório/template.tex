@@ -9,10 +9,15 @@
 \usepackage{verbatim}
 \usepackage{float}
 \usepackage{listings}
+\usepackage{caption}
 \usepackage[margin=3cm]{geometry}
 
+\linespread{0.5}
+
+\captionsetup{labelformat=empty,labelsep=none}
 \begin{document}
-\lstset{breaklines=true}
+\lstset{breaklines=true,
+basicstyle=\ttfamily\small}
 %\setlength{\textwidth}{16cm}
 \setlength{\textheight}{22cm}
 
@@ -38,6 +43,156 @@ Jorge Filipe Monteiro Lima - 201000649
 
 \newpage
 
+\section{Introdução}
+Neste relatório iremos descrever o nosso primeiro trabalho laboratorial, que teve como objectivos implementar um protocolo de ligação de dados, ou seja, um serviço de comunicação de dados fiável entre dois sistemas ligados 
+por canal de transmissão, neste caso, um cabo de série. Usando Linux como ambiente de desenvolvimento, a linguagem usada foi o C. 
+
+Foi também necessário testar o protocolo com uma aplicação de transferência de ficheiros.
+
+\section{Arquitectura}
+O nosso trabalho está dividido em 3 blocos funcionais, de acordo com o nome dos ficheiros .c: 
+\begin{itemize}
+\item Write - bloco com as funções necessárias para o \textit{transmitter}, nomeadamente o envio de pacotes de controlo e de dados;
+\item Read - bloco com as funções necessárias para o \textit{receiver}, nomeadamente a recepção de pacotes de controlo e de dados;
+\item Protocol - bloco com funções de envio/recepção de tramas de informação e de supervisão.
+\end{itemize}
+
+Os primeiros dois tratam da parte da aplicação, enquanto que o último trata da camada de mais baixo nível, o protocolo.
+
+\section{Estrutura do código}
+O código está dividido em 3 ficheiros, como descrito na secção anterior. As principais funções de cada um são as seguintes:
+%//Máquina de estados que trata do parsing dos pacotes
+%//Chama a função do protocolo que trata do establecimento da conexão por parte do receiver
+%//Chama a função do protocolo que trata da terminação da conexão por parte do receiver
+%//Chama a função do protocolo que efectua a leitura de dados
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Read.h}
+		
+\begin{lstlisting}
+//Maquina de estados que trata do parsing dos pacotes
+int packetStateMachine(char *buffer);  
+
+//Chama a funcao do protocolo que trata do establecimento ou terminacao da conexao por parte do receiver, respectivamente
+int llopen(char *porta); 
+int llclose(int fd); 
+
+//Chama a funcao do protocolo que efectua a leitura de dados
+int llread(int fd, char *buffer);  
+\end{lstlisting}
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Write.h}
+\begin{lstlisting}
+//Chama a funcao do protocolo que trata do establecimento/terminacao da conexao por parte do transmitter, respectivamente
+int llopen(char *porta);
+int llclose(int fd);
+
+//Trata do envio de pacotes de dados
+void sendFile(int fd, unsigned int fileSize, char *fileName, char *fileContent);
+
+//Abre ficheiro para leitura em binario, devolvendo o tamanho em bytes do ficheiro
+int openFile(char *fileName, char **fileContent) 
+\end{lstlisting}
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Protocol.h}
+\begin{lstlisting}
+//Trata do byte stuffing, mexe na variavel global writeBuf[]
+int stuffBytes(unsigned int numChars);
+
+//Constroi e envia a trama de controlo com 'c' como campo de controlo
+void sendControlFrame(int fd, int c);
+
+//Trata de iniciar a conexao entre o transmitter(user=0) e o receiver(user=1)
+int setConnection(char * porta, int user);
+
+//Chama o readFrame, para leitura de uma trama, e interpreta os resultados 	
+int readData(int fd, char * buffer);
+
+//Faz o parsing da trama recebida
+int readFrame(int fd, char * buffer, int *res);
+
+//Trata de iniciar a conexao
+int disconnect(int fd, int user);
+
+//Funcao auxiliar que constroi e envia um trama de dados com um pacote 'packet', chama a funcao sendFrame()
+int sendData(int fd, char *packet, int packetChars);
+
+//(Re-)envia a informacao existente em writeBuf ate 3 vezes, e chamada na funcao alarm() 
+void sendFrame();
+\end{lstlisting}
+
+\section{Casos de uso principais}
+Sequências de chamada de funções:
+
+Write(\textit{transmitter}):
+\renewcommand{\labelitemi}{$-$}
+\begin{itemize}
+\item openFile(fileName, \& fileContent);
+\item int fd = llopen(argv[1]);
+\begin{itemize}
+\item setConnection(porta, 0);
+\end{itemize}
+\item sendFile(fd, fileSize, fileName, fileContent);
+\begin{itemize}
+\item sendControlPacket(fd, 1, fileSize, fileName);
+\begin{itemize}
+\item llwrite(fd, controlPacket, i);
+\end{itemize}
+\end{itemize}
+\begin{itemize}
+\item sendDataPacket(fd, chunkBuf, CHUNK\_ SIZE, n); //chamado varias vezes
+\begin{itemize}
+\item llwrite(fd, packet, dataChars+4); //por causa do cabeçalho
+\end{itemize}
+\end{itemize}
+\begin{itemize}
+\item sendControlPacket(fd, 2, fileSize, fileName);
+\begin{itemize}
+\item llwrite(fd, controlPacket, i);
+\end{itemize}
+\end{itemize}
+\item llclose(fd);
+\begin{itemize}
+\item disconnect(fd, 0);
+\end{itemize}
+
+\end{itemize}
+
+
+Read(\textit{receiver}):
+
+\begin{itemize}
+
+\item int fd = llopen(argv[1]);
+\begin{itemize}
+\item setConnection(porta, 1);
+\end{itemize}
+\item int res = llread(fd, chunkBuf);
+\begin{itemize}
+\item readData(fd, buffer);
+\begin{itemize}
+\item sendControlFrame(...);
+\end{itemize}
+\end{itemize}
+\item if(res == 0) 
+                \{
+                        if(llclose(fd) \textless 0)
+                                return -1;
+                        break;
+                \}
+                \begin{itemize}
+\item disconnect(fd, 0);
+\end{itemize}
+                else if(res != -1) packetStateMachine(chunkBuf);
+\end{itemize}
+
 \section{Protocolo de ligação lógica}
 O protocolo de ligação lógica tem os seguintes aspectos funcionais:
 \begin{itemize}
@@ -56,7 +211,9 @@ O protocolo de ligação lógica tem os seguintes aspectos funcionais:
 As tramas de supervisão são enviadas com a seguinte função:\\
 
 \lstset{language=C,
-		showstringspaces=false}
+		showstringspaces=false,
+		caption=,
+		frame=}
 		
 \begin{lstlisting}
 void sendControlFrame(int fd, int c)
@@ -72,7 +229,7 @@ void sendControlFrame(int fd, int c)
 }
 \end{lstlisting}
 Esta função constrói uma trama de supervisão, sendo que o byte C é passado como parâmetro.
-
+\pagebreak
 \subsection{Envio de tramas com \textit{timeout}}
 
 Para enviar tramas com protecção de \textit{timeout} criamos a seguinte função:
@@ -336,7 +493,7 @@ Quanto ao tópico do trabalho, pareceu-nos uma boa maneira de abordar, de forma 
 
 \vspace*{\fill} 
 \centering
-\begin{Huge}\textbf{ANEXO 1 - CÓDIGO FONTE}\end{Huge}
+\begin{Huge}\textbf{ANEXO - CÓDIGO FONTE}\end{Huge}
 \vspace*{\fill}
 \thispagestyle{empty}
 \setcounter{page}{1}
