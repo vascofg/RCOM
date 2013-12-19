@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.1415926-2.4-1.40.13 (MiKTeX 2.9) (preloaded format=pdflatex 2013.11.10)  11 NOV 2013 18:02
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (MiKTeX 2.9) (preloaded format=pdflatex 2013.11.10)  11 NOV 2013 18:38
 entering extended mode
 **template.tex
 (C:\Users\Vasco\Development\git\RCOM\Relatório\template.tex
@@ -455,88 +455,88 @@ Package caption Info: End \AtBeginDocument code.
 <feup.pdf, id=1, 614.295pt x 794.97pt>
 File: feup.pdf Graphic file (type pdf)
  <use feup.pdf>
-Package pdftex.def Info: feup.pdf used on input line 38.
+Package pdftex.def Info: feup.pdf used on input line 37.
 (pdftex.def)             Requested size: 199.16547pt x 170.709pt.
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <12> on input line 38.
+(Font)              <12> on input line 37.
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <8> on input line 38.
+(Font)              <8> on input line 37.
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <6> on input line 38.
+(Font)              <6> on input line 37.
  [1
 
 {C:/ProgramData/MiKTeX/2.9/pdftex/config/pdftex.map} <C:/Users/Vasco/Developmen
 t/git/RCOM/Relatório/feup.pdf>]
-LaTeX Font Info:    Try loading font information for OMS+cmr on input line 55.
+LaTeX Font Info:    Try loading font information for OMS+cmr on input line 56.
  ("C:\Program Files\MiKTeX 2.9\tex\latex\base\omscmr.fd"
 File: omscmr.fd 1999/05/25 v2.5h Standard LaTeX font definitions
 )
 LaTeX Font Info:    Font shape `OMS/cmr/m/n' in size <10.95> not available
-(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 55.
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 56.
 
 ("C:\Program Files\MiKTeX 2.9\tex\latex\listings\lstlang1.sty"
 File: lstlang1.sty 2013/08/26 1.5b listings language file
 )
 ("C:\Program Files\MiKTeX 2.9\tex\latex\listings\lstmisc.sty"
 File: lstmisc.sty 2013/08/26 1.5b (Carsten Heinz)
-)
-LaTeX Font Info:    Font shape `OT1/cmtt/bx/n' in size <10> not available
-(Font)              Font shape `OT1/cmtt/m/n' tried instead on input line 75.
- [2]
+) [1]
 LaTeX Font Info:    External font `cmex10' loaded for size
-(Font)              <10.95> on input line 137.
- [3]
-LaTeX Font Info:    Try loading font information for OML+cmr on input line 186.
+(Font)              <10.95> on input line 128.
+ [2]
+LaTeX Font Info:    Try loading font information for OML+cmr on input line 187.
 
 
 ("C:\Program Files\MiKTeX 2.9\tex\latex\base\omlcmr.fd"
 File: omlcmr.fd 1999/05/25 v2.5h Standard LaTeX font definitions
 )
 LaTeX Font Info:    Font shape `OML/cmr/m/n' in size <10.95> not available
-(Font)              Font shape `OML/cmm/m/it' tried instead on input line 186.
+(Font)              Font shape `OML/cmm/m/it' tried instead on input line 187.
 
-Underfull \hbox (badness 10000) in paragraph at lines 211--212
-
- []
-
-[4]
-Underfull \hbox (badness 10000) in paragraph at lines 261--262
+Underfull \hbox (badness 10000) in paragraph at lines 212--213
 
  []
 
-[5] [6] [7]
-Overfull \hbox (4.09169pt too wide) in paragraph at lines 431--433
+[3]
+Underfull \hbox (badness 10000) in paragraph at lines 263--264
+
+ []
+
+LaTeX Font Info:    Font shape `OML/cmr/m/it' in size <10.95> not available
+(Font)              Font shape `OML/cmm/m/it' tried instead on input line 287.
+LaTeX Font Info:    Font shape `OMS/cmr/m/it' in size <10.95> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 287.
+[4] [5] [6]
+Overfull \hbox (4.09169pt too wide) in paragraph at lines 435--437
 \OT1/cmr/m/n/10.95 As tra-mas re-jei-ta-das im-pli-cam s~ao re-en-vi-a-das, sem
  ser ne-cessario es-pe-rar pelo proximo
  []
 
-
-Underfull \hbox (badness 10000) in paragraph at lines 454--455
+[7]
+Underfull \hbox (badness 10000) in paragraph at lines 460--461
 
  []
 
-[8] [1] (C:\Users\Vasco\Development\git\RCOM\Relatório\template.aux) ) 
+[8] [1] [2] [3] [4] [5] [6] [7] [8] [9] [10] [11] [12] [13] [14] [15] [16]
+(C:\Users\Vasco\Development\git\RCOM\Relatório\template.aux) ) 
 Here is how much of TeX's memory you used:
- 5180 strings out of 493921
- 73316 string characters out of 3147281
- 225589 words of memory out of 3000000
- 8427 multiletter control sequences out of 15000+200000
- 10626 words of font info for 38 fonts, out of 3000000 for 9000
+ 5393 strings out of 493921
+ 75556 string characters out of 3147281
+ 283585 words of memory out of 3000000
+ 8642 multiletter control sequences out of 15000+200000
+ 10122 words of font info for 35 fonts, out of 3000000 for 9000
  841 hyphenation exceptions out of 8191
- 36i,7n,49p,341b,1615s stack positions out of 5000i,500n,10000p,200000b,50000s
-<C:/Prog
-ram Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmbx10.pfb><C:/Program File
-s/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmbx12.pfb><C:/Program Files/MiKTeX
- 2.9/fonts/type1/public/amsfonts/cm/cmbxti10.pfb><C:/Program Files/MiKTeX 2.9/f
-onts/type1/public/amsfonts/cm/cmitt10.pfb><C:/Program Files/MiKTeX 2.9/fonts/ty
-pe1/public/amsfonts/cm/cmmi10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/publ
-ic/amsfonts/cm/cmr10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfon
-ts/cm/cmr12.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cms
-y10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmti10.pfb>
-<C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
-Output written on template.pdf (9 pages, 239888 bytes).
+ 36i,7n,49p,341b,1575s stack positions out of 5000i,500n,10000p,200000b,50000s
+<C:/Program File
+s/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmbx10.pfb><C:/Program Files/MiKTeX
+ 2.9/fonts/type1/public/amsfonts/cm/cmbx12.pfb><C:/Program Files/MiKTeX 2.9/fon
+ts/type1/public/amsfonts/cm/cmbxti10.pfb><C:/Program Files/MiKTeX 2.9/fonts/typ
+e1/public/amsfonts/cm/cmmi10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/publi
+c/amsfonts/cm/cmr10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfont
+s/cm/cmr12.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmsy
+10.pfb><C:/Program Files/MiKTeX 2.9/fonts/type1/public/amsfonts/cm/cmti10.pfb>
+Output written on template.pdf (25 pages, 260554 bytes).
 PDF statistics:
- 82 PDF objects out of 1000 (max. 8388607)
+ 125 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
  6 words of extra memory for PDF output out of 10000 (max. 10000000)
 

@@ -16,8 +16,7 @@
 
 \captionsetup{labelformat=empty,labelsep=none}
 \begin{document}
-\lstset{breaklines=true,
-basicstyle=\ttfamily\small}
+\lstset{breaklines=true}
 %\setlength{\textwidth}{16cm}
 \setlength{\textheight}{22cm}
 
@@ -42,6 +41,8 @@ Jorge Filipe Monteiro Lima - 201000649
 %************************************************************************************************
 
 \newpage
+
+\setcounter{page}{1}
 
 \section{Introdução}
 Neste relatório iremos descrever o nosso primeiro trabalho laboratorial, que teve como objectivos implementar um protocolo de ligação de dados, ou seja, um serviço de comunicação de dados fiável entre dois sistemas ligados 
@@ -213,7 +214,7 @@ As tramas de supervisão são enviadas com a seguinte função:\\
 \lstset{language=C,
 		showstringspaces=false,
 		caption=,
-		frame=}
+		frame=tb}
 		
 \begin{lstlisting}
 void sendControlFrame(int fd, int c)
@@ -228,6 +229,7 @@ void sendControlFrame(int fd, int c)
     write(fd, writeBuf, writeBufLen);  
 }
 \end{lstlisting}
+
 Esta função constrói uma trama de supervisão, sendo que o byte C é passado como parâmetro.
 \pagebreak
 \subsection{Envio de tramas com \textit{timeout}}
@@ -291,6 +293,7 @@ O bcc2 é assim calculado, e os bytes são \textit{stuffed}:
 \begin{lstlisting}
 int packetCharsAfterStuffing = stuffBytes(packetChars+1);
 \end{lstlisting}
+
 De seguida, a trama é enviada e aguarda-se a resposta (fazendo novas tentativas enquanto não houver uma resposta).
 Se a resposta for afirmativa (\textbf{RR}), a função alterna o C (entre 0 e 2) e retorna, em caso contrário (\textbf{RR}) a função volta a ser chamada para efectuar o reenvio.
 
@@ -299,6 +302,7 @@ O tratamento dos dados a enviar (\textit{stuffing} é feito pela seguinte funç�
 \begin{lstlisting}
 int stuffBytes(unsigned int numChars)
 \end{lstlisting}
+
 Esta função percorre todos os caracteres dos dados a enviar e, caso encontre os \textit{bytes} \textbf{0x7e} ou \textbf{0x7d}, passa todos os bytes seguintes uma posição para a direita e insere os caracteres de escape apropriados (\textbf{0x5e} ou \textbf{0x5d}, respectivamente):
 \begin{lstlisting}
 memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4));
@@ -451,6 +455,8 @@ else //REJECT OR INVALID RESPONSE
 }
 \end{lstlisting}
 
+\pagebreak
+
 \item[Verificação da integridade dos dados pela Aplicação] \hfill \\
 \begin{description}
 \item[Tamanho do ficheiro recebido] \hfill \\
@@ -497,4 +503,744 @@ Quanto ao tópico do trabalho, pareceu-nos uma boa maneira de abordar, de forma 
 \vspace*{\fill}
 \thispagestyle{empty}
 \setcounter{page}{1}
+
+\newpage
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Protocol.h}
+\begin{lstlisting}
+#pragma once
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <strings.h>
+#include <unistd.h>
+#include <signal.h>
+#include <string.h>
+#include <math.h>
+
+#define BAUDRATE B9600
+#define _POSIX_SOURCE 1 /* POSIX compliant source */
+#define FLAG 0x7E
+#define A 0x03
+#define READER_A 0x01
+#define C_SET 0x03
+#define C_UA 0x07
+#define C_RR 0x05
+#define C_REJ 0x01
+#define C_DISC 0x0B
+#define FALSE 0
+#define TRUE 1
+
+#define MAX_RETRIES 3 /* Numero de envios adicionais a efectuar em caso de nao haver resposta */
+#define CHUNK_SIZE 100 
+
+int	conta = 0, //contador para o alarm
+	c=0, // campo de controlo a alternar entre 0 e 2
+	globalFD, // para passar para signal handler
+	writeBufLen,
+	numTramas=0,
+	numTimeouts=0,
+	numRejects=0;
+	
+struct termios oldtio; //para restaurar definicoes da porta serie no final
+
+char writeBuf[CHUNK_SIZE*2+10], readBuf[1]; //pior caso possivel, vao ser enviados o dobro dos caracteres apos stuffing
+
+
+int stuffBytes(unsigned int numChars);
+void sendFrame();
+void sendControlFrame(int fd, int c);
+int setConnection(char * porta, int user);
+int readData(int fd, char * buffer);
+int readFrame(int fd, char * buffer, int *res);
+int disconnect(int fd, int user);
+int sendData(int fd, char *packet, int packetChars);
+\end{lstlisting}
+
+\pagebreak
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Protocol.c}
+\begin{lstlisting}
+#include "protocol.h"
+
+int stuffBytes(unsigned int numChars)
+{
+  int i=4; //avanca os quatro primeiros (cabecalho da trama)
+  for(;i<numChars+4;i++)
+  {
+    if(writeBuf[i]==0x7e)
+    {
+      memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4)); //avanca todos os caracteres uma posicao
+      writeBuf[i]=0x7d;
+      writeBuf[++i]=0x5e;
+      numChars++; //ha mais um caracter a transmitir
+    }
+    else if(writeBuf[i]==0x7d)
+    {
+      memmove(writeBuf+i+1,writeBuf+i,numChars-(i-4)); //avanca todos os caracteres uma posicao
+      writeBuf[i]=0x7d;
+      writeBuf[++i]=0x5d;
+      numChars++; //ha mais um caracter a transmitir
+    }
+  }
+  return numChars; //retorna novo numero de caracteres a transmitir
+}   
+
+/* (Re-)envia a informacao existente em writeBuf ate 3 vezes
+   e chamada na funcao alarm() */
+void sendFrame()
+{
+  if(conta>0) //incrementa numero de timeouts
+    numTimeouts++;
+  if(conta++ <= MAX_RETRIES)
+  {
+    write(globalFD, writeBuf, writeBufLen);
+    printf("\tSENDING PACKET\n");
+    alarm(3);
+  }
+  else
+  {
+    printf("CONNECTION LOST... GIVING UP\n");
+    exit(1);
+  }
+}
+
+//Constroi e envia a trama de controlo com 'c' como campo de controlo
+void sendControlFrame(int fd, int c)
+{
+  writeBuf[0]=FLAG;
+    writeBuf[1]=A;
+    writeBuf[2]=c;
+    writeBuf[3]=writeBuf[1]^writeBuf[2];
+    writeBuf[4]=FLAG;
+  writeBufLen=5;
+  printf("SENDING COMMAND 0x%x\n", c);
+  write(fd, writeBuf, writeBufLen);  
+}
+
+//Trata de iniciar a conexao entre o transmitter e o receiver
+int setConnection(char * porta, int user) //0 - writer, 1 - receiver
+{
+  struct termios newtio;
+  
+    int sum = 0, speed = 0, fd;
+
+    fd = open(porta, O_RDWR | O_NOCTTY );
+    if (fd <0) {perror(porta); return -1; }
+
+    if ( tcgetattr(fd,&oldtio) == -1) { /* save current port settings */
+      perror("tcgetattr");
+      return -1;
+    }
+
+    bzero(&newtio, sizeof(newtio));
+    newtio.c_cflag = BAUDRATE | CS8 | CLOCAL | CREAD;
+    newtio.c_iflag = IGNPAR;
+    newtio.c_oflag = 0;
+
+    /* set input mode (non-canonical, no echo,...) */
+    newtio.c_lflag = 0;
+
+    newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
+    newtio.c_cc[VMIN]     = 1;   /* blocking read until 5 chars received */
+  
+    tcflush(fd, TCIOFLUSH);
+
+    if ( tcsetattr(fd,TCSANOW,&newtio) == -1) {
+      perror("tcsetattr");
+    return -1;
+    }
+
+    printf("New termios structure set\n");
+  
+  (void)signal(SIGALRM, sendFrame); //instala a rotina que envia um sigalrm quando houver time-out, chamando a funcao sendFrame
+  
+  if(user==0) //writer
+  {
+    writeBuf[0] = FLAG;
+    writeBuf[1] = A;
+    writeBuf[2] = C_SET;
+    writeBuf[3] = writeBuf[1] ^ writeBuf[2];
+    writeBuf[4] = FLAG;
+    writeBufLen = 5;
+    printf("WRITING SET\n");
+
+    
+    globalFD = fd;
+    sendFrame();
+
+    if (readFrame(fd, NULL, NULL) != C_UA)
+    {
+      printf("\tWRONG SET RESPONSE, QUITING\n");
+      return -1;
+    }
+    else
+      printf("CONNECTION ESTABLISHED!\n");
+  }
+  else //reader
+  {
+    printf("AWAITING CONNECTION\n");
+    if(readFrame(fd, NULL, NULL) != C_SET)
+    {
+      printf("\tSET FRAME MALFORMED, QUITING\n");
+      return -1;
+    }
+    else
+    {
+      sendControlFrame(fd, C_UA);
+      printf("CONNECTION ESTABLISHED\n");
+    }
+  }
+  return fd;
+}
+
+int readData(int fd, char * buffer)
+{
+  int res, readC = readFrame(fd, buffer, &res);
+  if(readC == C_DISC) //disconnect recebido
+  {
+    return 0;
+  }
+  else if(readC == -1) //invalid bcc2
+  {
+    printf("\nINVALID DATA, SENDING REJECT\n");
+    numRejects++;
+    sendControlFrame(fd, C_REJ ^ (c<<4)); //passa os 4 bits do c para a esquerda
+    return -1;
+  }
+  else
+  {
+    sendControlFrame(fd, C_RR ^ (c<<4));
+    return res;
+  }
+}
+
+int readFrame(int fd, char * buffer, int *res)
+{
+  int i = 0, bcc2 = 0, state = 0;
+    unsigned char readByte, readC;
+
+    while(1)
+    {
+    read(fd, readBuf, 1);
+    readByte = readBuf[0];
+    switch(state)
+    {
+    case 0: //FLAG
+      if(readByte == FLAG)
+        state=1;
+      break;
+    case 1: //A
+      if(readByte == A)
+        state=2;
+      else if(readByte == READER_A)
+        state=5;
+      else if(readByte != FLAG)
+        state = 0;
+      break;
+    case 2: //C
+      readC = readByte;
+      if(readByte == FLAG)
+        state = 1;
+      else if(readByte == C_SET || readByte == C_UA || readByte == C_DISC || readByte == C_RR ^ (alternaC(c)<<4) || readByte == C_REJ ^ (alternaC(c)<<4) || readByte == C_RR ^ (c<<4) || readByte == C_REJ ^ (c<<4) || readByte == 0 || readByte == 2)
+        state = 3;
+      else
+        state = 0;
+      break;
+    case 3: // BCC1
+      if(readByte == A ^ readC)
+        state = 4;
+      else if(readByte == FLAG)
+              state = 1;
+          else
+              state = 0;
+      break;
+    case 4: //FLAG
+      if(readByte == FLAG)
+      {
+        //reinicia timeouts
+        alarm(0);
+        conta=0;
+        if (readC == c) //DATA FRAME, NOT DUPLICATE
+                {
+          numTramas++; //incrementa tramas recebidas (reader)
+          *res = i-1; //-1 e o bcc
+          if(buffer[i-1] == bcc2)
+          {
+            c=alternaC(c);
+          }
+          else
+          {
+            return -1;
+          }
+                }
+        return readC;
+      }
+      else
+      {
+        //printf("\t%x - %c\n", readByte, readByte);
+        //printf("I: %i\n", i);
+        
+        //destuffing
+        if(readByte==0x7d) //se caracter for 0x7d, destuff
+        {
+          read(fd, readBuf, 1); //le o proximo
+          readByte=readBuf[0];
+          if(readByte == 0x5e)
+            readByte = 0x7e;
+          else if(readByte == 0x5d)
+            readByte = 0x7d;
+        }
+        
+        buffer[i] = readByte; //construir chunk (para escrita no ficheiro)
+        if(i>0)
+          bcc2^=buffer[i-1]; //para nao fazer xor do bcc2 com o proprio bcc2 (seria sempre 0)
+        i++;
+      }
+      break;
+    case 5: //DISC COMMAND FROM READER
+      readC = readByte;
+      if(readByte == C_DISC)
+        state = 3;
+      else
+        state = 0;
+    }
+    }
+}
+
+//Trata de terminar a conexao 
+int disconnect(int fd, int user) //0 writer, 1 reader
+{
+  writeBuf[0]=FLAG;
+  writeBuf[1]=A;
+  if(user==1) //needs to change address
+    writeBuf[1]=READER_A;
+  writeBuf[2]=C_DISC;
+  writeBuf[3]=writeBuf[1]^writeBuf[2];
+  writeBuf[4]=FLAG;
+  writeBufLen=5;
+  printf("DISCONNECTING\n");
+  
+    globalFD = fd;
+  sendFrame(); //Envia trama de controlo com C_DISC
+  if(user==0)
+  {
+    int readC = readFrame(fd, NULL, NULL);
+    if(readC != C_DISC)
+      disconnect(fd, user); //wrong response, send disc again
+    else
+      sendControlFrame(fd, C_UA);
+  }
+  else
+  {
+    if(readFrame(fd, NULL, NULL) != C_UA) //se nao receber UA
+    {
+      printf("INVALID DISCONNECT RESPONSE\n");
+      return -1;
+    }
+  }
+  
+  sleep(1); //wait before closing connection
+  
+  //close connection
+  if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
+    perror("tcsetattr");
+    return -1;
+  }
+
+  close(fd);
+  //IMPRIME ESTATISTICAS
+  printf("Numero de tramas I: %i\n", numTramas);
+  printf("Numero de timeouts: %i\n", numTimeouts);
+  printf("Numero de rejects I: %i\n", numRejects);
+  return 0;
+}
+
+//Funcao auxiliar que constroi e envia um trama de dados com um pacote 'packet'
+int sendData(int fd, char *packet, int packetChars)
+{
+  //cabecalho da trama
+  writeBuf[0] = FLAG;
+  writeBuf[1] = A;
+  writeBuf[2] = c;
+  writeBuf[3] = writeBuf[1] ^ writeBuf[2];
+  int i, bcc2 = 0;
+  
+  //dados
+  for (i = 4; i<packetChars + 4; ++i)
+  {
+    writeBuf[i] = packet[i - 4];
+    //printf("writeBuf[%i] -> %x\n", i, writeBuf[i]);
+    bcc2 ^= writeBuf[i];
+  }
+  writeBuf[i++] = bcc2;
+  int packetCharsAfterStuffing = stuffBytes(packetChars+1); //Numero de caracteres para fazer stuffing
+  //printf("%x\n", bcc2);
+  i=packetCharsAfterStuffing+4; //posicao no indice seguinte e igual ao novo numero de caracteres a transmitir + cabecalho da trama
+  writeBuf[i++] = FLAG;
+  writeBufLen = i;
+
+  printf("WRITING DATA FRAME\n");
+  globalFD = fd;
+  sendFrame();
+
+  if (readFrame(fd, NULL, NULL) == (C_RR ^ (alternaC(c)<<4)))  //RR
+  {
+        c=alternaC(c);
+    printf("\tRECEIVER READY!\n");
+  }
+  else //REJECT OR INVALID RESPONSE
+  {
+    numRejects++;
+    printf("\tREJECT! RESENDING!!!\n");
+    sendData(fd, packet, packetChars); //reenvia
+  }
+
+  numTramas++; //incrementa tramas enviadas (writer)
+  
+  return packetChars;
+}
+
+int alternaC(int c)
+{
+    if(c==0)
+        return 2;
+    else
+        return 0;
+}
+\end{lstlisting}
+
+\pagebreak
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Read.h}
+\begin{lstlisting}
+#pragma once
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define CHUNK_SIZE 100
+
+int n = 0;
+
+unsigned int fileSize;
+
+char fileName[255];
+FILE * pFile;
+
+int packetStateMachine(char *buffer);
+int llopen(char *porta);
+int llclose(int fd);
+int llread(int fd, char *buffer);
+\end{lstlisting}
+
+\pagebreak
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Read.c}
+\begin{lstlisting}
+#include "read.h"
+
+//Maquina de estados para um trama de dados e respectivo pacote
+int packetStateMachine(char *buffer)
+{
+  unsigned char c = buffer[0];
+  switch(c)
+  {
+    case 0:
+    {
+      printf("\tDATA PACKET\n");
+      if(buffer[1]==n) //se nao for um pacote duplicado, grava para ficheiro
+      {
+          unsigned char l2 = buffer[2], l1 = buffer[3];
+          int k = 256*l2+l1;
+          fwrite(buffer+4, sizeof(char), k, pFile); //escreve para ficheiro
+          if(n==255)
+              n=0;
+          else
+              n++;
+      }
+      break;
+    }
+    case 1:
+    {
+      printf("\tSTART PACKET\n");
+      unsigned char t1 = buffer[1], l1 = buffer[2], i, tmp = l1;
+      for(i=3;i<l1+3;++i)
+          fileSize |= (((unsigned char)buffer[i]) << (8*--tmp));
+              
+      unsigned char t2 = buffer[i++], l2 = buffer[i++], j=i;
+      for(;i<l2+j;i++)
+          fileName[i-j]=buffer[i];
+      
+      //printf("\t%s\n", fileName);
+      
+      break;
+    }
+    case 2:
+    {
+      printf("\tEND PACKET\n");
+      if(fileSize != ftell(pFile)) //compara tamanho do ficheiro do pacote inicial com o realmente escrito para o ficheiro
+          printf("\nERROR TRANSFERING: WRONG FILE SIZE\n");
+      
+      break;
+    }
+  }
+  return 0;
+}
+
+int llopen(char *porta)
+{
+  return setConnection(porta, 1); //reader
+}
+
+
+int llclose(int fd)
+{
+  return disconnect(fd, 1); //1 - reader
+}
+
+int llread(int fd, char *buffer)
+{
+  return readData(fd, buffer);
+}
+
+int main(int argc, char** argv)
+{
+  if (argc < 2){
+    printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
+    exit(1);
+  }
+  //Open file for writing
+  pFile = fopen ( "tmp" , "wb" );
+  if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+  
+  int fd = llopen(argv[1]);
+  if(fd<0)
+    return -1;
+    
+  char chunkBuf[CHUNK_SIZE+5];
+  
+  while(1)
+  {
+    int res = llread(fd, chunkBuf);
+    if(res == 0) //disconnect request received
+    {
+      if(llclose(fd) < 0)
+        return -1;
+      break;
+    }
+    else if(res != -1) //not invalidBCC
+      packetStateMachine(chunkBuf);
+  }
+  printf("\nALL DONE\n");
+  //sleep(1);
+
+  fclose(pFile);
+    rename("tmp", fileName); //rename file
+    return 0;
+}
+\end{lstlisting}
+
+\pagebreak
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Write.h}
+\begin{lstlisting}
+#pragma once
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <strings.h>
+#include <string.h>
+
+#define CHUNK_SIZE 100
+
+int llopen(char *porta);
+void sendFile(int fd, unsigned int fileSize, char *fileName, char *fileContent);
+void sendControlPacket(int fd, int packetC, unsigned int fileSize, char *fileName);
+void sendDataPacket(int fd, char *packet, int dataChars, unsigned char n);
+int openFile(char *fileName, char **fileContent);
+int llclose(int fd);
+int llwrite(int fd, char * buffer, int length);
+\end{lstlisting}
+
+
+\pagebreak
+
+\lstset{language=C,
+		showstringspaces=false,
+		frame=tb,
+		caption=Write.c}
+\begin{lstlisting}
+#include "write.h"
+
+//Trata de iniciar a conexao entre o transmitter e o receiver
+int llopen(char *porta)
+{
+  return setConnection(porta, 0); //0 - writer
+}
+
+//Trata do envio de dados, no devido formato 
+void sendFile(int fd, unsigned int fileSize, char *fileName, char *fileContent)
+{
+  unsigned int i, n=0;
+  //pacote de controlo start
+  sendControlPacket(fd, 1, fileSize, fileName);
+  
+  char chunkBuf[CHUNK_SIZE+4]; //tamanho do chunk a enviar mais cabecalho
+  
+  for(i=0;i<(fileSize/CHUNK_SIZE);i++) //whole chunks
+  {
+    memcpy(chunkBuf+4, &fileContent[i*CHUNK_SIZE], CHUNK_SIZE); //ADD 4 to accommodate packet information
+    sendDataPacket(fd, chunkBuf, CHUNK_SIZE, n);
+    if(n==255)
+      n=0;
+    else
+      n++;
+  }
+  
+  //last bytes
+  if(fileSize%CHUNK_SIZE>0)
+  {
+    memcpy(chunkBuf+4, &fileContent[i*CHUNK_SIZE], fileSize%CHUNK_SIZE); //ADD 4 to accommodate packet information
+    sendDataPacket(fd, chunkBuf, fileSize%CHUNK_SIZE, n);
+  }
+    
+    //pacote de controlo end
+  sendControlPacket(fd, 2, fileSize, fileName);
+}
+
+//Constroi e envia trama de dados com um pacote de controlo
+void sendControlPacket(int fd, int packetC, unsigned int fileSize, char *fileName)
+{
+  char controlPacket[255];
+  controlPacket[0]=packetC; //C
+  controlPacket[1]=0; //T1 - tamanho do ficheiro
+  int i=3, currentByte, significant = 0;
+  
+  for(currentByte=sizeof(fileSize);currentByte>0;currentByte--) //percorre inteiro byte a byte do mais significativo para o menos
+  {
+    unsigned char byte = (fileSize >> (currentByte-1)*8) & 0xff; //passa bytes individuais(octetos) para controlPacket
+    
+    if(!significant) //enquanto forem nao significativos
+      if(byte!=0) //se byte actual nao for zero
+        significant = 1; //todos os seguintes sao significativos
+    if(significant) //para todos os bytes significativos, enviar
+      controlPacket[i++]=byte; //V1
+  }
+  
+  controlPacket[2]=i-3; //L1
+  controlPacket[i++] = 1; //T2 - nome do ficheiro
+  controlPacket[i++] = strlen(fileName); //L2
+  
+  int j;  
+  for(j=0;j<strlen(fileName);j++) //escreve caracteres individuais do nome do ficheiro
+    controlPacket[i++] = fileName[j]; //V2
+    
+  printf("WRITING CONTROL PACKET\n");
+  llwrite(fd, controlPacket, i);
+}
+
+//Envia trama de dados com um pacote de dados
+void sendDataPacket(int fd, char *packet, int dataChars, unsigned char n)
+{
+  //cabecalho do pacote
+  packet[0]=0;
+  packet[1]=n;
+  packet[2]=dataChars/256;
+  packet[3]=dataChars%256;
+    printf("WRITING DATA PACKET\n");
+  llwrite(fd, packet, dataChars+4); //por causa do cabecalho
+}
+
+int llwrite(int fd, char * buffer, int length)
+{
+  return sendData(fd, buffer, length);
+}
+
+//Abre ficheiro para leitura em binario, devolvendo o tamanho em bytes do ficheiro
+int openFile(char *fileName, char **fileContent)
+{
+  FILE * pFile;
+  long lSize;
+  size_t result;
+
+  pFile = fopen ( fileName , "rb" );
+  if (pFile==NULL) {fputs ("File error",stderr); exit (1);}
+
+  // obtain file size:
+  fseek (pFile , 0 , SEEK_END);
+  lSize = ftell (pFile);
+  rewind (pFile);
+
+  // allocate memory to contain the whole file:
+  *fileContent = (char*) malloc (sizeof(char)*lSize);
+  if (*fileContent == NULL) {fputs ("Memory error",stderr); exit (2);}
+
+  // copy the file into the buffer:
+  result = fread (*fileContent,1,lSize,pFile);
+  if (result != lSize) {fputs ("Reading error",stderr); exit (3);}
+
+  /* the whole file is now loaded in the memory buffer. */
+
+  // terminate
+  fclose (pFile);
+  return lSize;
+}
+
+int llclose(int fd)
+{
+  return disconnect(fd, 0); //0 - writer
+}
+
+int main(int argc, char** argv)
+{
+  if (argc < 3){
+    printf("Usage:\tnserial SerialPort FileName\n\tex: nserial /dev/ttyS1 text.txt\n");
+    exit(1);
+    }
+  
+  unsigned int fileSize;
+  char *fileContent, fileName[255];
+  
+  
+  strcpy(fileName, argv[2]);
+  
+  fileSize = openFile(fileName, &fileContent);
+  
+  printf("FILESIZE: %i\n", fileSize);
+  
+  int fd = llopen(argv[1]);
+  if(fd<0)
+    return -1;
+  sendFile(fd, fileSize, fileName, fileContent);
+  
+  printf("\nALL DONE\n");
+  
+  if(llclose(fd) < 0)
+  
+    return -1;
+  
+  return 0;
+}
+\end{lstlisting}
+
 \end{document}
