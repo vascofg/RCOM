@@ -48,10 +48,53 @@ Coisas doces.
 Neste relatório iremos descrever o nosso segundo trabalho laboratorial, que teve como objectivos desenvolver uma aplicação de download FTP e a configuração de uma rede utilizando vlans em switch managed e router comercial CISCO.
 
 \section{Aplicação de Download FTP}
+Foi desenvolvida uma aplicação de download FTP com vista a estudar o protocolo e os pacotes que transitam na rede.
 \subsection{Arquitectura}
+Esta aplicação, cujo código se encontra em anexo, encontra-se dividida em quatro componentes principais, a saber:
+\begin{itemize}
+\item Interpretação do URL
+\item Recepção de mensagens
+\item Envio de comandos
+\item Recepção do ficheiro
+\end{itemize}
+\vspace{5pt}
 
-\subsection{Exemplo de um download com sucesso}
-Mais coisas doces. Não, docinhas.
+O programa recebe como argumento o URL para download, no formato
+\begin{lstlisting}
+	ftp://[<user>:<password>@]<host>/<url-path>
+\end{lstlisting}
+
+O URL é processado, sendo divido nas componentes \textit{user}, \textit{password}, \textit{host}, \textit{path} e \textit{filename}.Esta informação é usada para estabelecer a ligação, através de \textit{sockets} de C, com o servidor FTP, autenticar com o nome de utilizador (ou \textit{Anonymous} caso este não esteja especificado no URL), abrir a ligação em modo passivo e transferir o ficheiro.\\
+O ficheiro é guardado no computador, com o mesmo nome do ficheiro original.\\
+
+Foi implementada uma mecânica de detecção de erros, utilizando para isso o código da mensagem FTP, para assegurar que nos encontramos no passo correcto da sequência de comandos.\\
+
+Outra melhoria foi a introdução de um timeout, configurável através de uma constante, que impede que o programa fique à espera de informação demasiado tempo.\\
+
+Foram ainda implementados um medidor de progresso, cálculo da velocidade de transferência, indicação do tempo que esta demorou e verificação de erro na transferência (que verifica o número de bytes recebidos).\\
+
+Para esta verificação foi usado o número de bytes do ficheiro original, que é recebido aquando da abertura do ficheiro para transferência, no \textit{socket} principal.
+
+\pagebreak
+\subsection{Exemplo de uma transferência com sucesso}
+A sequência de mensagens de uma transferência com sucesso é a seguinte:
+\begin{description}
+\item[Estabelecer ligação] \hfill \\
+
+220 FTP for Alf/Tom/Crazy/Pinguim
+\item[user Pedro] \hfill \\
+
+331 Please specify the password
+\item[pass 123456] \hfill \\
+
+230 Login successful
+\item[pasv] \hfill \\
+
+227 Entering Passive Mode (192,168,50,138,249,250)
+\item[recv teste.txt] \hfill \\
+
+150 Opening BINARY mode data connection for teste.txt (1632 bytes)
+\end{description}
 
 \section{Configuração da Rede e Análise }
 %************************************************************************************************
@@ -211,6 +254,8 @@ route add -net 172.16.y0.0/24 gw 172.16.y1.253
 \subsubsection{Comandos}
 
 \begin{lstlisting}
+configurar router (ligar consola ao router, tux4 ao switch ligar FE0/1 ao P6.1, ligar FE0/0 à porta 6
+>>>>>>> d89e5c5b34987a45371b6836dcbe0d701da87200
 >root
 >8nortel
 
