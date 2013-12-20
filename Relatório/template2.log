@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.1415926-2.4-1.40.13 (MiKTeX 2.9) (preloaded format=pdflatex 2013.10.11)  19 DEC 2013 17:01
+This is pdfTeX, Version 3.1415926-2.4-1.40.13 (MiKTeX 2.9) (preloaded format=pdflatex 2013.10.11)  20 DEC 2013 02:02
 entering extended mode
 **template2.tex
 (C:\Users\Nuno\Documents\GitHub\RCOM\Relatório\template2.tex
@@ -462,24 +462,39 @@ LaTeX Font Info:    External font `cmex10' loaded for size
  [1
 
 {C:/ProgramData/MiKTeX/2.9/pdftex/config/pdftex.map} <C:/Users/Nuno/Documents/G
-itHub/RCOM/Relatório/feup.pdf>] [2] [3] [1]
+itHub/RCOM/Relatório/feup.pdf>] [2] [3] [4] [5] [6] [7] [8] [9] [10] [11] [12]
+ [13] [14] [15]
+[16] [17] [18] [19] [20] [21] [22] [23] [24] [25] [26] [27] [28] [29] [30]
+[31] [32] [33] [34] [35] [36] [37] [38] [39] [40] [41] [42] [43] [44] [45]
+[46] [47] [48] [49] [50] [51] [52] [53] [54] [55] [56] [57] [58] [59] [60]
+[61] [62] [63] [64] [65] [66] [67] [68] [69] [70] [71] [72] [73] [74] [75]
+[76] [77] [78] [79] [80] [81] [82] [83] [84] [85] [86] [87] [88] [89] [90]
+[91] [92] [93] [94] [95] [96] [97] [98] [99] [100] [101] [102] [103] [104]
+[105] [106] [107] [108] [109] [110] [111] [112] [113] [114] [115] [116]
+[117] [118] [119] [120] [121] [122] [123] [124] [125] [126] [127] [128]
+[129] [130] [131] [132] [133] [134] [135] [136] [137] [138] [139] [140]
+[141] [142] [143] [144] [145] [146] [147] [148] [149] [150] [151] [152]
+[153] [154] [155] [156] [157] [158] [159] [160] [161] [162] [163] [164]
+[165] [166] [167] [168] [169] [170] [171] [172] [173] [174] [175] [176]
+[177] [178] [179] [180] [181] [182] [183] [184] [185] [186] [187] [188]
+[189] [190] [191] [192] [193] [194] [195] [1]
 (C:\Users\Nuno\Documents\GitHub\RCOM\Relatório\template2.aux) ) 
 Here is how much of TeX's memory you used:
- 4629 strings out of 493921
- 66014 string characters out of 3154502
- 132078 words of memory out of 3000000
- 7891 multiletter control sequences out of 15000+200000
- 9160 words of font info for 32 fonts, out of 3000000 for 9000
+ 4890 strings out of 493921
+ 67989 string characters out of 3154502
+ 410078 words of memory out of 3000000
+ 8151 multiletter control sequences out of 15000+200000
+ 9496 words of font info for 34 fonts, out of 3000000 for 9000
  841 hyphenation exceptions out of 8191
- 36i,7n,38p,258b,243s stack positions out of 5000i,500n,10000p,200000b,50000s
+ 36i,7n,40p,258b,1599s stack positions out of 5000i,500n,10000p,200000b,50000s
 <C:/MikTex/font
 s/type1/public/amsfonts/cm/cmbx10.pfb><C:/MikTex/fonts/type1/public/amsfonts/cm
 /cmbx12.pfb><C:/MikTex/fonts/type1/public/amsfonts/cm/cmbxti10.pfb><C:/MikTex/f
 onts/type1/public/amsfonts/cm/cmr10.pfb><C:/MikTex/fonts/type1/public/amsfonts/
-cm/cmr12.pfb>
-Output written on template2.pdf (4 pages, 143184 bytes).
+cm/cmr12.pfb><C:/MikTex/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
+Output written on template2.pdf (196 pages, 581312 bytes).
 PDF statistics:
- 45 PDF objects out of 1000 (max. 8388607)
+ 664 PDF objects out of 1000 (max. 8388607)
  0 named destinations out of 1000 (max. 500000)
  6 words of extra memory for PDF output out of 10000 (max. 10000000)
 
